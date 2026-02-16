@@ -13,7 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { CalendarDays, Clock, CheckCircle, XCircle, Undo2, Plus, User, Users } from "lucide-react";
+import { CalendarDays, Clock, CheckCircle, XCircle, Undo2, Plus, User, Users, Activity } from "lucide-react";
 import UserDossier from "@/components/hr/UserDossier";
 
 const statusLabels: Record<string, string> = {
@@ -47,6 +47,10 @@ export default function HRPage() {
   const [usersFilterUnit, setUsersFilterUnit] = useState("all");
   const [dossierOpen, setDossierOpen] = useState(false);
   const [dossierUser, setDossierUser] = useState<{ userId: string; fullName: string }>({ userId: "", fullName: "" });
+
+  // Activity log state
+  const [activityLogs, setActivityLogs] = useState<any[]>([]);
+  const [activityLoading, setActivityLoading] = useState(false);
 
   useEffect(() => { fetchData(); }, [role]);
 
@@ -137,6 +141,28 @@ export default function HRPage() {
   };
 
   const filteredUsers = usersFilterUnit === "all" ? allUsers : allUsers.filter(u => u.unit === usersFilterUnit);
+
+  const fetchActivityLogs = async () => {
+    setActivityLoading(true);
+    const { data } = await supabase.from("audit_log").select("*").order("created_at", { ascending: false }).limit(100);
+    setActivityLogs(data ?? []);
+    setActivityLoading(false);
+  };
+
+  const actionLabels: Record<string, string> = {
+    update_curriculum: "تعديل منهاج",
+    create_user: "إنشاء مستخدم",
+    disable_user: "تعطيل حساب",
+    enable_user: "تفعيل حساب",
+    reset_password: "إعادة تعيين كلمة مرور",
+    update_profile: "تعديل بيانات",
+  };
+
+  const getUserName = (userId: string | null) => {
+    if (!userId) return "—";
+    const m = members.find(p => p.user_id === userId);
+    return m?.full_name ?? "مستخدم";
+  };
 
   return (
     <AppLayout>
@@ -237,7 +263,10 @@ export default function HRPage() {
             <TabsTrigger value="requests">طلبات الإجازات</TabsTrigger>
             <TabsTrigger value="attendance">سجل الحضور</TabsTrigger>
             {(role === "admin" || role === "unit_head") && (
-              <TabsTrigger value="users" className="gap-1"><Users className="w-4 h-4" />عرض المستخدمين</TabsTrigger>
+              <>
+                <TabsTrigger value="users" className="gap-1"><Users className="w-4 h-4" />عرض المستخدمين</TabsTrigger>
+                <TabsTrigger value="activity" className="gap-1" onClick={() => { if (activityLogs.length === 0) fetchActivityLogs(); }}><Activity className="w-4 h-4" />سجل النشاط</TabsTrigger>
+              </>
             )}
           </TabsList>
 
@@ -369,6 +398,57 @@ export default function HRPage() {
                   </CardContent>
                 </Card>
               </div>
+            </TabsContent>
+          )}
+
+          {(role === "admin" || role === "unit_head") && (
+            <TabsContent value="activity">
+              <Card className="shadow-card border-0">
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Activity className="w-5 h-5 text-primary" />
+                    سجل نشاط الشعبة
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  {activityLoading ? (
+                    <p className="text-center py-8 text-muted-foreground">جاري التحميل...</p>
+                  ) : activityLogs.length === 0 ? (
+                    <p className="text-center py-8 text-muted-foreground">لا توجد سجلات نشاط</p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="text-right">المستخدم</TableHead>
+                            <TableHead className="text-right">الحركة</TableHead>
+                            <TableHead className="text-right">التفاصيل</TableHead>
+                            <TableHead className="text-right">التاريخ</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {activityLogs.map(log => (
+                            <TableRow key={log.id}>
+                              <TableCell className="font-medium">{getUserName(log.user_id)}</TableCell>
+                              <TableCell>
+                                <Badge variant="outline">{actionLabels[log.action] ?? log.action}</Badge>
+                              </TableCell>
+                              <TableCell className="text-sm max-w-xs truncate">
+                                {log.details && typeof log.details === "object" && (log.details as any).title
+                                  ? (log.details as any).title
+                                  : log.target_type ?? "—"}
+                              </TableCell>
+                              <TableCell className="text-sm text-muted-foreground">
+                                {new Date(log.created_at).toLocaleString("ar-SA", { dateStyle: "short", timeStyle: "short" })}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
             </TabsContent>
           )}
         </Tabs>

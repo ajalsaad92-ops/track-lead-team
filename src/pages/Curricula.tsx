@@ -87,9 +87,34 @@ export default function CurriculaPage() {
     if (!editId) return;
     const record = buildRecord();
     const updateData = { ...record, stage: computeStage(record) as any };
+    // Get old values for audit log
+    const oldCurriculum = curricula.find(c => c.id === editId);
     const { error } = await supabase.from("curricula").update(updateData).eq("id", editId);
     if (error) toast({ title: "خطأ", description: error.message, variant: "destructive" });
-    else { toast({ title: "تم تحديث المنهاج" }); setEditDialogOpen(false); resetForm(); fetchCurricula(); }
+    else {
+      // Log changes to audit_log
+      if (oldCurriculum && user) {
+        const changes: Record<string, { old: any; new: any }> = {};
+        Object.keys(updateData).forEach(key => {
+          if (key === "stage") return;
+          const oldVal = oldCurriculum[key];
+          const newVal = (updateData as any)[key];
+          if (String(oldVal ?? "") !== String(newVal ?? "")) {
+            changes[key] = { old: oldVal, new: newVal };
+          }
+        });
+        if (Object.keys(changes).length > 0) {
+          await supabase.from("audit_log").insert({
+            user_id: user.id,
+            action: "update_curriculum",
+            target_type: "curricula",
+            target_id: editId,
+            details: { changes, title: oldCurriculum.title },
+          });
+        }
+      }
+      toast({ title: "تم تحديث المنهاج" }); setEditDialogOpen(false); resetForm(); fetchCurricula();
+    }
   };
 
   const buildRecord = () => ({
