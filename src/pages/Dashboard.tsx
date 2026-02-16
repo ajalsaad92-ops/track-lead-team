@@ -247,7 +247,13 @@ export default function Dashboard() {
           </Card>
         </div>
 
-        {/* Incomplete Curricula Alerts */}
+        {/* Incomplete Curricula Alerts - enhanced for individuals */}
+        {curriculaGaps.length > 0 && role === "individual" && (
+          <div className="p-3 bg-warning/10 border border-warning/30 rounded-lg text-sm font-medium text-warning flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4" />
+            مهمة تلقائية لإكمال بيانات — لديك {curriculaGaps.length} منهاج يحتاج لإكمال بيانات ناقصة
+          </div>
+        )}
         <IncompleteCurriculaAlert gaps={curriculaGaps} />
 
         {/* Popup for attendance details */}
