@@ -11,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { UserPlus, Users, Pencil, KeyRound, History } from "lucide-react";
+import { UserPlus, Users, Pencil, KeyRound, History, ShieldOff, ShieldCheck } from "lucide-react";
 import AppLayout from "@/components/AppLayout";
 
 const roleLabels: Record<string, string> = { admin: "مدير", unit_head: "مسؤول شعبة", individual: "فرد" };
@@ -25,6 +25,7 @@ interface Profile {
   unit: string | null;
   duty_system: string;
   phone: string | null;
+  is_disabled: boolean;
   user_roles: { role: string; unit: string | null }[];
 }
 
@@ -44,6 +45,7 @@ export default function UserManagement() {
   const [newPassword, setNewPassword] = useState("");
   const [resetting, setResetting] = useState(false);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
+  const [highlightUserId, setHighlightUserId] = useState<string | null>(null);
   const [form, setForm] = useState({
     email: "", password: "", full_name: "", role: "individual",
     unit: "preparation", duty_system: "daily", phone: "",
@@ -79,8 +81,13 @@ export default function UserManagement() {
       toast({ title: "تم إنشاء الحساب بنجاح" });
       setDialogOpen(false);
       setForm({ email: "", password: "", full_name: "", role: "individual", unit: "preparation", duty_system: "daily", phone: "" });
-      fetchProfiles();
+      await fetchProfiles();
       fetchAuditLogs();
+      // Highlight the new user
+      if (data?.user_id) {
+        setHighlightUserId(data.user_id);
+        setTimeout(() => setHighlightUserId(null), 4000);
+      }
     } catch (err: any) {
       toast({ title: "خطأ", description: err.message, variant: "destructive" });
     }
@@ -112,7 +119,6 @@ export default function UserManagement() {
       }).eq("user_id", editProfile.user_id);
       if (profileError) throw profileError;
 
-      // Update role
       const currentRole = editProfile.user_roles?.[0]?.role;
       if (currentRole !== editForm.role) {
         await supabase.from("user_roles").update({
@@ -121,7 +127,6 @@ export default function UserManagement() {
         }).eq("user_id", editProfile.user_id);
       }
 
-      // Audit log
       await supabase.from("audit_log").insert({
         user_id: user!.id,
         action: "update_user",
@@ -159,9 +164,29 @@ export default function UserManagement() {
     setResetting(false);
   };
 
+  const handleToggleDisable = async (p: Profile) => {
+    const newValue = !p.is_disabled;
+    const { error } = await supabase.from("profiles").update({ is_disabled: newValue } as any).eq("user_id", p.user_id);
+    if (error) {
+      toast({ title: "خطأ", description: error.message, variant: "destructive" });
+      return;
+    }
+    await supabase.from("audit_log").insert({
+      user_id: user!.id,
+      action: newValue ? "disable_user" : "enable_user",
+      target_type: "user",
+      target_id: p.user_id,
+      details: { full_name: p.full_name },
+    });
+    toast({ title: newValue ? "تم تعطيل الحساب" : "تم تفعيل الحساب" });
+    fetchProfiles();
+    fetchAuditLogs();
+  };
+
   const actionLabels: Record<string, string> = {
     create_user: "إنشاء مستخدم", update_user: "تعديل بيانات", reset_password: "إعادة تعيين كلمة مرور",
     approve_leave: "موافقة على إجازة", reject_leave: "رفض إجازة",
+    disable_user: "تعطيل حساب", enable_user: "تفعيل حساب",
   };
 
   return (
@@ -257,6 +282,7 @@ export default function UserManagement() {
                   <TableHeader>
                     <TableRow>
                       <TableHead className="text-right">الاسم</TableHead>
+                      <TableHead className="text-right">الحالة</TableHead>
                       <TableHead className="text-right">الدور</TableHead>
                       <TableHead className="text-right">الشعبة</TableHead>
                       <TableHead className="text-right">نظام الدوام</TableHead>
@@ -266,13 +292,25 @@ export default function UserManagement() {
                   </TableHeader>
                   <TableBody>
                     {loading ? (
-                      <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">جاري التحميل...</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">جاري التحميل...</TableCell></TableRow>
                     ) : profiles.length === 0 ? (
-                      <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">لا يوجد مستخدمون بعد</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">لا يوجد مستخدمون بعد</TableCell></TableRow>
                     ) : (
                       profiles.map((p) => (
-                        <TableRow key={p.id}>
-                          <TableCell className="font-medium">{p.full_name}</TableCell>
+                        <TableRow
+                          key={p.id}
+                          className={highlightUserId === p.user_id ? "bg-primary/10 animate-pulse transition-colors duration-1000" : ""}
+                        >
+                          <TableCell className="font-medium">
+                            {p.full_name}
+                          </TableCell>
+                          <TableCell>
+                            {p.is_disabled ? (
+                              <Badge variant="destructive" className="text-xs">معطّل</Badge>
+                            ) : (
+                              <Badge className="bg-success/10 text-success text-xs">نشط</Badge>
+                            )}
+                          </TableCell>
                           <TableCell>
                             <Badge variant={p.user_roles?.[0]?.role === "admin" ? "default" : "secondary"}>
                               {roleLabels[p.user_roles?.[0]?.role ?? ""] ?? "—"}
@@ -288,6 +326,15 @@ export default function UserManagement() {
                               </Button>
                               <Button size="sm" variant="ghost" className="h-7 gap-1" onClick={() => { setResetUserId(p.user_id); setResetDialogOpen(true); }}>
                                 <KeyRound className="w-3 h-3" />كلمة مرور
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className={`h-7 gap-1 ${p.is_disabled ? "text-success" : "text-destructive"}`}
+                                onClick={() => handleToggleDisable(p)}
+                              >
+                                {p.is_disabled ? <ShieldCheck className="w-3 h-3" /> : <ShieldOff className="w-3 h-3" />}
+                                {p.is_disabled ? "تفعيل" : "تعطيل"}
                               </Button>
                             </div>
                           </TableCell>
