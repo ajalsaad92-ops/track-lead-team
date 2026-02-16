@@ -13,7 +13,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { CalendarDays, Clock, CheckCircle, XCircle, Undo2, Plus, User } from "lucide-react";
+import { CalendarDays, Clock, CheckCircle, XCircle, Undo2, Plus, User, Users } from "lucide-react";
+import UserDossier from "@/components/hr/UserDossier";
 
 const statusLabels: Record<string, string> = {
   pending: "معلّق", unit_head_approved: "موافق (مسؤول)", unit_head_rejected: "مرفوض (مسؤول)",
@@ -24,6 +25,7 @@ const statusColors: Record<string, string> = {
   unit_head_rejected: "bg-destructive/10 text-destructive", admin_approved: "bg-success/10 text-success",
   admin_rejected: "bg-destructive/10 text-destructive",
 };
+const unitLabels: Record<string, string> = { preparation: "شعبة الإعداد", curriculum: "شعبة المناهج" };
 
 export default function HRPage() {
   const { user, role } = useAuth();
@@ -40,6 +42,12 @@ export default function HRPage() {
   const [infoDialogOpen, setInfoDialogOpen] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState<any>(null);
 
+  // Users tab state
+  const [allUsers, setAllUsers] = useState<any[]>([]);
+  const [usersFilterUnit, setUsersFilterUnit] = useState("all");
+  const [dossierOpen, setDossierOpen] = useState(false);
+  const [dossierUser, setDossierUser] = useState<{ userId: string; fullName: string }>({ userId: "", fullName: "" });
+
   useEffect(() => { fetchData(); }, [role]);
 
   const fetchData = async () => {
@@ -49,8 +57,9 @@ export default function HRPage() {
     const { data: att } = await supabase.from("attendance").select("*").eq("date", today);
     setAttendance(att ?? []);
     if (role === "admin" || role === "unit_head") {
-      const { data: profiles } = await supabase.from("profiles").select("user_id, full_name, duty_system");
+      const { data: profiles } = await supabase.from("profiles").select("user_id, full_name, duty_system, unit");
       setMembers(profiles ?? []);
+      setAllUsers(profiles ?? []);
     }
     setLoading(false);
   };
@@ -68,27 +77,16 @@ export default function HRPage() {
   const fetchApplicantInfo = async (lr: any) => {
     setSelectedRequest(lr);
     const currentMonth = new Date().toISOString().slice(0, 7) + "-01";
-    
-    // Fetch balance
     const { data: balance } = await supabase.from("leave_balances")
       .select("*").eq("user_id", lr.user_id).eq("month", currentMonth).maybeSingle();
-
-    // Fetch this month's requests
     const startOfMonth = currentMonth;
     const endOfMonth = new Date(new Date(currentMonth).getFullYear(), new Date(currentMonth).getMonth() + 1, 0).toISOString().slice(0, 10);
     const { data: monthRequests } = await supabase.from("leave_requests")
       .select("*").eq("user_id", lr.user_id)
       .gte("start_date", startOfMonth).lte("start_date", endOfMonth)
       .neq("id", lr.id);
-
-    // Get profile name
     const member = members.find(m => m.user_id === lr.user_id);
-
-    setApplicantInfo({
-      name: member?.full_name ?? "—",
-      balance,
-      monthRequests: monthRequests ?? [],
-    });
+    setApplicantInfo({ name: member?.full_name ?? "—", balance, monthRequests: monthRequests ?? [] });
     setInfoDialogOpen(true);
   };
 
@@ -113,15 +111,9 @@ export default function HRPage() {
   const handleUndo = async (id: string) => {
     const updates: any = { status: "pending" as any };
     if (role === "unit_head") {
-      updates.unit_head_decision = null;
-      updates.unit_head_id = null;
-      updates.unit_head_date = null;
-      updates.unit_head_notes = null;
+      updates.unit_head_decision = null; updates.unit_head_id = null; updates.unit_head_date = null; updates.unit_head_notes = null;
     } else if (role === "admin") {
-      updates.admin_decision = null;
-      updates.admin_id = null;
-      updates.admin_date = null;
-      updates.admin_notes = null;
+      updates.admin_decision = null; updates.admin_id = null; updates.admin_date = null; updates.admin_notes = null;
     }
     const { error } = await supabase.from("leave_requests").update(updates).eq("id", id);
     if (error) toast({ title: "خطأ", description: error.message, variant: "destructive" });
@@ -143,6 +135,8 @@ export default function HRPage() {
     if (role === "admin") return lr.admin_decision && lr.admin_decision !== "pending";
     return false;
   };
+
+  const filteredUsers = usersFilterUnit === "all" ? allUsers : allUsers.filter(u => u.unit === usersFilterUnit);
 
   return (
     <AppLayout>
@@ -242,6 +236,9 @@ export default function HRPage() {
           <TabsList>
             <TabsTrigger value="requests">طلبات الإجازات</TabsTrigger>
             <TabsTrigger value="attendance">سجل الحضور</TabsTrigger>
+            {(role === "admin" || role === "unit_head") && (
+              <TabsTrigger value="users" className="gap-1"><Users className="w-4 h-4" />عرض المستخدمين</TabsTrigger>
+            )}
           </TabsList>
 
           <TabsContent value="requests">
@@ -272,13 +269,10 @@ export default function HRPage() {
                         {(role === "admin" || role === "unit_head") && (
                           <TableCell>
                             <div className="flex gap-1">
-                              {/* Show approval buttons or undo */}
                               {(lr.status === "pending" || (role === "admin" && lr.status === "unit_head_approved")) && (
-                                <>
-                                  <Button size="sm" variant="ghost" className="text-info h-7 gap-1" onClick={() => fetchApplicantInfo(lr)}>
-                                    <User className="w-3 h-3" />مراجعة
-                                  </Button>
-                                </>
+                                <Button size="sm" variant="ghost" className="text-info h-7 gap-1" onClick={() => fetchApplicantInfo(lr)}>
+                                  <User className="w-3 h-3" />مراجعة
+                                </Button>
                               )}
                               {isDecisionMade(lr) && (
                                 <Button size="sm" variant="ghost" className="text-warning h-7 gap-1" onClick={() => handleUndo(lr.id)}>
@@ -327,6 +321,56 @@ export default function HRPage() {
               </CardContent>
             </Card>
           </TabsContent>
+
+          {(role === "admin" || role === "unit_head") && (
+            <TabsContent value="users">
+              <div className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <Select value={usersFilterUnit} onValueChange={setUsersFilterUnit}>
+                    <SelectTrigger className="w-40"><SelectValue placeholder="فلتر الشعبة" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">جميع الشعب</SelectItem>
+                      <SelectItem value="preparation">شعبة الإعداد</SelectItem>
+                      <SelectItem value="curriculum">شعبة المناهج</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Card className="shadow-card border-0">
+                  <CardContent className="p-0">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="text-right">الاسم</TableHead>
+                          <TableHead className="text-right">الشعبة</TableHead>
+                          <TableHead className="text-right">إجراء</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {filteredUsers.length === 0 ? (
+                          <TableRow><TableCell colSpan={3} className="text-center py-8 text-muted-foreground">لا يوجد مستخدمون</TableCell></TableRow>
+                        ) : filteredUsers.map(u => (
+                          <TableRow key={u.user_id}>
+                            <TableCell className="font-medium">{u.full_name}</TableCell>
+                            <TableCell>{unitLabels[u.unit] ?? "—"}</TableCell>
+                            <TableCell>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 gap-1 text-primary"
+                                onClick={() => { setDossierUser({ userId: u.user_id, fullName: u.full_name }); setDossierOpen(true); }}
+                              >
+                                <User className="w-3 h-3" />عرض الملف
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </CardContent>
+                </Card>
+              </div>
+            </TabsContent>
+          )}
         </Tabs>
 
         {/* Applicant Info & Approval Dialog */}
@@ -341,8 +385,6 @@ export default function HRPage() {
                     {selectedRequest.leave_type === "leave" ? "إجازة" : "زمنية"} - {selectedRequest.start_date}
                   </p>
                 </div>
-
-                {/* Balance */}
                 <div className="grid grid-cols-2 gap-3">
                   <div className="p-3 border rounded-lg text-center">
                     <p className="text-xs text-muted-foreground">رصيد الإجازات</p>
@@ -359,8 +401,6 @@ export default function HRPage() {
                     <p className="text-xs text-muted-foreground">ساعة متبقية</p>
                   </div>
                 </div>
-
-                {/* Month History */}
                 <div className="p-3 border rounded-lg">
                   <p className="text-sm font-medium mb-2">سجل الشهر الحالي</p>
                   {applicantInfo.monthRequests.length === 0 ? (
@@ -376,8 +416,6 @@ export default function HRPage() {
                     </div>
                   )}
                 </div>
-
-                {/* Approval buttons */}
                 <div className="flex gap-2 pt-2">
                   <Button className="flex-1 gap-1 bg-success hover:bg-success/90 text-white"
                     onClick={() => handleApproval(selectedRequest.id, role === "admin" ? "admin_approved" : "unit_head_approved")}>
@@ -392,6 +430,14 @@ export default function HRPage() {
             )}
           </DialogContent>
         </Dialog>
+
+        {/* User Dossier */}
+        <UserDossier
+          userId={dossierUser.userId}
+          fullName={dossierUser.fullName}
+          open={dossierOpen}
+          onOpenChange={setDossierOpen}
+        />
       </div>
     </AppLayout>
   );

@@ -248,6 +248,7 @@ export type Database = {
           duty_system: Database["public"]["Enums"]["duty_system"]
           full_name: string
           id: string
+          is_disabled: boolean
           phone: string | null
           unit: Database["public"]["Enums"]["unit_type"] | null
           updated_at: string
@@ -258,6 +259,7 @@ export type Database = {
           duty_system?: Database["public"]["Enums"]["duty_system"]
           full_name: string
           id?: string
+          is_disabled?: boolean
           phone?: string | null
           unit?: Database["public"]["Enums"]["unit_type"] | null
           updated_at?: string
@@ -268,6 +270,7 @@ export type Database = {
           duty_system?: Database["public"]["Enums"]["duty_system"]
           full_name?: string
           id?: string
+          is_disabled?: boolean
           phone?: string | null
           unit?: Database["public"]["Enums"]["unit_type"] | null
           updated_at?: string
