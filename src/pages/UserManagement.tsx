@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { UserPlus, Users, Pencil, KeyRound, History, ShieldOff, ShieldCheck } from "lucide-react";
 import AppLayout from "@/components/AppLayout";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 const roleLabels: Record<string, string> = { admin: "مدير", unit_head: "مسؤول شعبة", individual: "فرد" };
 const unitLabels: Record<string, string> = { preparation: "شعبة الإعداد", curriculum: "شعبة المناهج" };
@@ -32,6 +33,7 @@ interface Profile {
 export default function UserManagement() {
   const { user } = useAuth();
   const { toast } = useToast();
+  const isMobile = useIsMobile();
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -52,11 +54,24 @@ export default function UserManagement() {
   });
 
   const fetchProfiles = async () => {
-    const { data } = await supabase
-      .from("profiles")
-      .select("*, user_roles(role, unit)")
-      .order("created_at", { ascending: false });
-    setProfiles((data as any) ?? []);
+    // Fetch profiles and roles separately to avoid foreign key issue
+    const [profilesRes, rolesRes] = await Promise.all([
+      supabase.from("profiles").select("*").order("created_at", { ascending: false }),
+      supabase.from("user_roles").select("user_id, role, unit"),
+    ]);
+
+    const rolesMap: Record<string, { role: string; unit: string | null }[]> = {};
+    (rolesRes.data ?? []).forEach((r: any) => {
+      if (!rolesMap[r.user_id]) rolesMap[r.user_id] = [];
+      rolesMap[r.user_id].push({ role: r.role, unit: r.unit });
+    });
+
+    const merged = (profilesRes.data ?? []).map((p: any) => ({
+      ...p,
+      user_roles: rolesMap[p.user_id] ?? [],
+    }));
+
+    setProfiles(merged as Profile[]);
     setLoading(false);
   };
 
@@ -83,7 +98,6 @@ export default function UserManagement() {
       setForm({ email: "", password: "", full_name: "", role: "individual", unit: "preparation", duty_system: "daily", phone: "" });
       await fetchProfiles();
       fetchAuditLogs();
-      // Highlight the new user
       if (data?.user_id) {
         setHighlightUserId(data.user_id);
         setTimeout(() => setHighlightUserId(null), 4000);
@@ -189,6 +203,49 @@ export default function UserManagement() {
     disable_user: "تعطيل حساب", enable_user: "تفعيل حساب",
   };
 
+  const renderUserCard = (p: Profile) => (
+    <Card
+      key={p.id}
+      className={`shadow-card border-0 ${highlightUserId === p.user_id ? "ring-2 ring-primary animate-pulse" : ""}`}
+    >
+      <CardContent className="p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="font-bold text-sm">{p.full_name}</h3>
+          {p.is_disabled ? (
+            <Badge variant="destructive" className="text-xs">معطّل</Badge>
+          ) : (
+            <Badge className="bg-success/10 text-success text-xs">نشط</Badge>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Badge variant={p.user_roles?.[0]?.role === "admin" ? "default" : "secondary"}>
+            {roleLabels[p.user_roles?.[0]?.role ?? ""] ?? "—"}
+          </Badge>
+          <Badge variant="outline">{unitLabels[p.unit ?? ""] ?? "—"}</Badge>
+          <Badge variant="outline">{dutyLabels[p.duty_system] ?? "—"}</Badge>
+        </div>
+        {p.phone && <p className="text-xs text-muted-foreground" dir="ltr">{p.phone}</p>}
+        <div className="flex gap-2 pt-1">
+          <Button size="sm" variant="outline" className="flex-1 h-8 gap-1 text-xs" onClick={() => openEdit(p)}>
+            <Pencil className="w-3 h-3" />تعديل
+          </Button>
+          <Button size="sm" variant="outline" className="flex-1 h-8 gap-1 text-xs" onClick={() => { setResetUserId(p.user_id); setResetDialogOpen(true); }}>
+            <KeyRound className="w-3 h-3" />كلمة مرور
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className={`h-8 gap-1 text-xs ${p.is_disabled ? "text-success" : "text-destructive"}`}
+            onClick={() => handleToggleDisable(p)}
+          >
+            {p.is_disabled ? <ShieldCheck className="w-3 h-3" /> : <ShieldOff className="w-3 h-3" />}
+            {p.is_disabled ? "تفعيل" : "تعطيل"}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+
   return (
     <AppLayout>
       <div className="space-y-6">
@@ -202,7 +259,7 @@ export default function UserManagement() {
           </div>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
-              <Button className="gradient-primary text-white gap-2">
+              <Button className="gradient-primary text-white gap-2 w-full sm:w-auto">
                 <UserPlus className="w-4 h-4" />حساب جديد
               </Button>
             </DialogTrigger>
@@ -276,34 +333,36 @@ export default function UserManagement() {
           </TabsList>
 
           <TabsContent value="users">
-            <Card className="shadow-card border-0 overflow-x-auto">
-              <CardContent className="p-0 min-w-[700px]">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="text-right">الاسم</TableHead>
-                      <TableHead className="text-right">الحالة</TableHead>
-                      <TableHead className="text-right">الدور</TableHead>
-                      <TableHead className="text-right">الشعبة</TableHead>
-                      <TableHead className="text-right">نظام الدوام</TableHead>
-                      <TableHead className="text-right">الهاتف</TableHead>
-                      <TableHead className="text-right">إجراءات</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {loading ? (
-                      <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">جاري التحميل...</TableCell></TableRow>
-                    ) : profiles.length === 0 ? (
-                      <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">لا يوجد مستخدمون بعد</TableCell></TableRow>
-                    ) : (
-                      profiles.map((p) => (
+            {loading ? (
+              <p className="text-center py-8 text-muted-foreground">جاري التحميل...</p>
+            ) : profiles.length === 0 ? (
+              <p className="text-center py-8 text-muted-foreground">لا يوجد مستخدمون بعد</p>
+            ) : isMobile ? (
+              <div className="space-y-3">
+                {profiles.map(renderUserCard)}
+              </div>
+            ) : (
+              <Card className="shadow-card border-0">
+                <CardContent className="p-0">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="text-right">الاسم</TableHead>
+                        <TableHead className="text-right">الحالة</TableHead>
+                        <TableHead className="text-right">الدور</TableHead>
+                        <TableHead className="text-right">الشعبة</TableHead>
+                        <TableHead className="text-right">نظام الدوام</TableHead>
+                        <TableHead className="text-right">الهاتف</TableHead>
+                        <TableHead className="text-right">إجراءات</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {profiles.map((p) => (
                         <TableRow
                           key={p.id}
                           className={highlightUserId === p.user_id ? "bg-primary/10 animate-pulse transition-colors duration-1000" : ""}
                         >
-                          <TableCell className="font-medium">
-                            {p.full_name}
-                          </TableCell>
+                          <TableCell className="font-medium">{p.full_name}</TableCell>
                           <TableCell>
                             {p.is_disabled ? (
                               <Badge variant="destructive" className="text-xs">معطّل</Badge>
@@ -339,17 +398,17 @@ export default function UserManagement() {
                             </div>
                           </TableCell>
                         </TableRow>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+            )}
           </TabsContent>
 
           <TabsContent value="audit">
             <Card className="shadow-card border-0">
-              <CardContent className="p-0">
+              <CardContent className="p-0 overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
