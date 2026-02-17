@@ -34,26 +34,26 @@ const Login = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center gradient-primary p-4 relative overflow-hidden">
-      {/* Decorative shapes */}
-      <div className="absolute top-0 left-0 w-72 h-72 bg-white/5 rounded-full -translate-x-1/2 -translate-y-1/2" />
-      <div className="absolute bottom-0 right-0 w-96 h-96 bg-white/5 rounded-full translate-x-1/3 translate-y-1/3" />
-      <div className="absolute top-1/2 left-1/4 w-32 h-32 bg-white/5 rounded-2xl rotate-45" />
+    <div className="min-h-screen flex items-center justify-center gradient-primary px-4 py-6 relative overflow-hidden">
+      {/* Decorative shapes - hidden on small screens */}
+      <div className="hidden sm:block absolute top-0 left-0 w-72 h-72 bg-white/5 rounded-full -translate-x-1/2 -translate-y-1/2" />
+      <div className="hidden sm:block absolute bottom-0 right-0 w-96 h-96 bg-white/5 rounded-full translate-x-1/3 translate-y-1/3" />
+      <div className="hidden sm:block absolute top-1/2 left-1/4 w-32 h-32 bg-white/5 rounded-2xl rotate-45" />
 
       <Card className="w-full max-w-md shadow-elevated border-0 animate-fade-in relative z-10">
-        <CardHeader className="text-center pb-2 pt-8">
-          <div className="mx-auto w-16 h-16 gradient-primary rounded-2xl flex items-center justify-center mb-4 shadow-lg">
-            <Shield className="w-8 h-8 text-white" />
+        <CardHeader className="text-center pb-2 pt-6 sm:pt-8 px-4 sm:px-6">
+          <div className="mx-auto w-14 h-14 sm:w-16 sm:h-16 gradient-primary rounded-2xl flex items-center justify-center mb-3 sm:mb-4 shadow-lg">
+            <Shield className="w-7 h-7 sm:w-8 sm:h-8 text-white" />
           </div>
-          <h1 className="text-2xl font-bold font-cairo text-foreground">
+          <h1 className="text-xl sm:text-2xl font-bold font-cairo text-foreground">
             نظام إدارة التدريب
           </h1>
-          <p className="text-muted-foreground text-sm mt-1">
+          <p className="text-muted-foreground text-xs sm:text-sm mt-1">
             قم بتسجيل الدخول للوصول إلى لوحة القيادة
           </p>
         </CardHeader>
-        <CardContent className="px-8 pb-8">
-          <form onSubmit={handleSubmit} className="space-y-5">
+        <CardContent className="px-4 sm:px-8 pb-6 sm:pb-8">
+          <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-5">
             <div className="space-y-2">
               <Label htmlFor="email" className="text-sm font-medium">
                 البريد الإلكتروني
