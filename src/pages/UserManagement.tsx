@@ -192,13 +192,13 @@ export default function UserManagement() {
   return (
     <AppLayout>
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
-            <h2 className="text-xl font-bold font-cairo flex items-center gap-2">
-              <Users className="w-6 h-6 text-primary" />
+            <h2 className="text-lg sm:text-xl font-bold font-cairo flex items-center gap-2">
+              <Users className="w-5 h-5 sm:w-6 sm:h-6 text-primary" />
               إدارة المستخدمين
             </h2>
-            <p className="text-sm text-muted-foreground">إنشاء وإدارة حسابات الأفراد والمسؤولين</p>
+            <p className="text-xs sm:text-sm text-muted-foreground">إنشاء وإدارة حسابات الأفراد والمسؤولين</p>
           </div>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
@@ -276,8 +276,8 @@ export default function UserManagement() {
           </TabsList>
 
           <TabsContent value="users">
-            <Card className="shadow-card border-0">
-              <CardContent className="p-0">
+            <Card className="shadow-card border-0 overflow-x-auto">
+              <CardContent className="p-0 min-w-[700px]">
                 <Table>
                   <TableHeader>
                     <TableRow>
