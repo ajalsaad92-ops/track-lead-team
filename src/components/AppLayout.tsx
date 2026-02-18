@@ -71,7 +71,7 @@ export default function AppLayout({ children }: {children: ReactNode;}) {
               </div>
               <div>
                 <h1 className="text-sm font-bold font-cairo">نظام التدريب</h1>
-                <p className="text-xs text-sidebar-foreground/60 font-serif">
+                <p className="text-xs font-serif text-warning">
                   {roleLabels[role ?? ""] ?? ""}
                 </p>
               </div>
