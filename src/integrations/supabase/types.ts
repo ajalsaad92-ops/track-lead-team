@@ -278,6 +278,30 @@ export type Database = {
         }
         Relationships: []
       }
+      task_comments: {
+        Row: {
+          created_at: string
+          id: string
+          message: string
+          task_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          message: string
+          task_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          message?: string
+          task_id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       tasks: {
         Row: {
           assigned_by: string | null
@@ -372,6 +396,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      can_access_task_comment: {
+        Args: { _task_id: string; _user_id: string }
+        Returns: boolean
+      }
       get_profile_unit: {
         Args: { _profile_user_id: string }
         Returns: Database["public"]["Enums"]["unit_type"]
