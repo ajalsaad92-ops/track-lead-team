@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Users, CalendarDays, BookOpen, ClipboardList, BarChart3, Clock, Award, AlertTriangle } from "lucide-react";
+import { Users, CalendarDays, BookOpen, ClipboardList, BarChart3, Clock, Award, AlertTriangle, Bell } from "lucide-react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
 import { useNavigate } from "react-router-dom";
 import AppLayout from "@/components/AppLayout";
@@ -28,6 +28,7 @@ export default function Dashboard() {
   const [taskSummary, setTaskSummary] = useState({ assigned: 0, in_progress: 0, completed: 0, approved: 0 });
   const [pendingLeaves, setPendingLeaves] = useState<any[]>([]);
   const [balance, setBalance] = useState({ leave_days: 3, time_off_hours: 7, points: 0 });
+  const [myTasks, setMyTasks] = useState<any[]>([]);
   const [popupData, setPopupData] = useState<{ title: string; items: any[] } | null>(null);
   const [curriculaGaps, setCurriculaGaps] = useState<CurriculumGap[]>([]);
 
@@ -35,7 +36,6 @@ export default function Dashboard() {
     if (!role) return;
     const today = new Date().toISOString().slice(0, 10);
 
-    // Attendance
     if (role === "admin" || role === "unit_head") {
       const { data: allProfiles } = await supabase.from("profiles").select("user_id, full_name");
       const totalUsers = allProfiles?.length ?? 0;
@@ -48,8 +48,7 @@ export default function Dashboard() {
       setAttendanceSummary(summary);
     }
 
-    // Tasks
-    const { data: tasks } = await supabase.from("tasks").select("status");
+    const { data: tasks } = await supabase.from("tasks").select("status, assigned_to, title, id, created_at, points_awarded");
     if (tasks) {
       const ts = { assigned: 0, in_progress: 0, completed: 0, approved: 0 };
       tasks.forEach((t: any) => {
@@ -59,9 +58,14 @@ export default function Dashboard() {
         else if (t.status === "approved") ts.approved++;
       });
       setTaskSummary(ts);
+
+      // Individual: get my active tasks
+      if (role === "individual" && user) {
+        const mine = tasks.filter((t: any) => t.assigned_to === user.id && ["assigned", "in_progress", "under_review"].includes(t.status));
+        setMyTasks(mine);
+      }
     }
 
-    // Pending leaves
     if (role === "admin" || role === "unit_head") {
       const { data: leaves } = await supabase
         .from("leave_requests").select("*")
@@ -70,7 +74,6 @@ export default function Dashboard() {
       setPendingLeaves(leaves ?? []);
     }
 
-    // Curricula gaps
     const checkFields = ["trainer", "location", "hours", "objectives", "target_groups", "prepared_by", "executing_entity"] as const;
     const { data: curricula } = await supabase.from("curricula").select("id, title, trainer, location, hours, objectives, target_groups, prepared_by, executing_entity");
     if (curricula) {
@@ -82,7 +85,6 @@ export default function Dashboard() {
       setCurriculaGaps(gaps);
     }
 
-    // Individual balance
     if (role === "individual" && user) {
       const currentMonth = new Date().toISOString().slice(0, 7) + "-01";
       const { data: bal } = await supabase
@@ -104,7 +106,6 @@ export default function Dashboard() {
     if (role) fetchDashboardData();
   }, [role, fetchDashboardData]);
 
-  // Realtime subscription
   const { newTaskAlert, dismissAlert } = useDashboardRealtime(fetchDashboardData);
 
   const statCards = role === "individual"
@@ -112,7 +113,7 @@ export default function Dashboard() {
         { label: "الإجازات المتبقية", value: `${balance.leave_days} يوم`, icon: CalendarDays, color: "bg-warning/10 text-warning" },
         { label: "الزمنيات المتبقية", value: `${balance.time_off_hours} ساعة`, icon: Clock, color: "bg-info/10 text-info" },
         { label: "نقاط الإنجاز", value: `${balance.points}`, icon: Award, color: "bg-success/10 text-success" },
-        { label: "مهامي", value: `${taskSummary.assigned + taskSummary.in_progress}`, icon: ClipboardList, color: "bg-secondary/10 text-secondary" },
+        { label: "مهامي النشطة", value: `${myTasks.length}`, icon: ClipboardList, color: "bg-secondary/10 text-secondary", onClick: () => navigate("/tasks") },
       ]
     : [
         { label: "الحضور", value: `${attendanceSummary.present}`, icon: Users, color: "bg-primary/10 text-primary", onClick: () => showPopup("الحاضرون", "present") },
@@ -145,12 +146,21 @@ export default function Dashboard() {
     { name: "معتمدة", value: taskSummary.approved, color: COLORS[1] },
   ].filter((d) => d.value > 0);
 
+  const statusColors: Record<string, string> = {
+    assigned: "bg-warning/10 text-warning border border-warning/20",
+    in_progress: "bg-info/10 text-info border border-info/20",
+    under_review: "bg-secondary/10 text-secondary border border-secondary/20",
+  };
+  const statusLabels: Record<string, string> = {
+    assigned: "مكلّف", in_progress: "قيد التنفيذ", under_review: "قيد المراجعة",
+  };
+
   return (
     <AppLayout>
-      <div className="space-y-6">
+      <div className="space-y-4 sm:space-y-6">
         <div>
-          <h2 className="text-xl font-bold font-cairo">لوحة القيادة</h2>
-          <p className="text-sm text-muted-foreground">نظرة عامة على أداء القسم — تحديث لحظي</p>
+          <h2 className="text-lg sm:text-xl font-bold font-cairo">لوحة القيادة</h2>
+          <p className="text-xs sm:text-sm text-muted-foreground">نظرة عامة على أداء القسم — تحديث لحظي</p>
         </div>
 
         {/* New Task Alert */}
@@ -158,8 +168,52 @@ export default function Dashboard() {
           <NewTaskAlert title={newTaskAlert.title} onDismiss={dismissAlert} />
         )}
 
+        {/* Individual: Active Tasks Highlight */}
+        {role === "individual" && myTasks.length > 0 && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <Bell className="w-4 h-4 text-primary animate-pulse" />
+              <h3 className="text-sm font-bold text-foreground">مهامك النشطة</h3>
+              <Badge className="bg-primary text-primary-foreground text-xs">{myTasks.length}</Badge>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {myTasks.slice(0, 4).map((t: any) => (
+                <button
+                  key={t.id}
+                  onClick={() => navigate("/tasks")}
+                  className={`w-full text-right p-3 rounded-xl border-2 transition-all hover:shadow-elevated active:scale-[0.99] ${
+                    t.status === "assigned"
+                      ? "border-warning/40 bg-warning/5 hover:bg-warning/10"
+                      : t.status === "in_progress"
+                      ? "border-info/40 bg-info/5 hover:bg-info/10"
+                      : "border-secondary/40 bg-secondary/5 hover:bg-secondary/10"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className={`w-2 h-2 rounded-full shrink-0 ${
+                        t.status === "assigned" ? "bg-warning animate-pulse" :
+                        t.status === "in_progress" ? "bg-info animate-pulse" : "bg-secondary"
+                      }`} />
+                      <p className="font-medium text-sm truncate">{t.title}</p>
+                    </div>
+                    <Badge className={`text-xs shrink-0 ${statusColors[t.status] ?? ""}`}>
+                      {statusLabels[t.status] ?? t.status}
+                    </Badge>
+                  </div>
+                </button>
+              ))}
+            </div>
+            {myTasks.length > 4 && (
+              <Button variant="ghost" size="sm" className="w-full text-xs text-muted-foreground" onClick={() => navigate("/tasks")}>
+                + {myTasks.length - 4} مهام أخرى
+              </Button>
+            )}
+          </div>
+        )}
+
         {/* Stats */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
           {statCards.map((stat) => (
             <Card
               key={stat.label}
@@ -167,12 +221,12 @@ export default function Dashboard() {
               onClick={"onClick" in stat ? stat.onClick : undefined}
             >
               <CardContent className="p-3 sm:p-4 flex items-center gap-2 sm:gap-3">
-                <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center shrink-0 ${stat.color}`}>
-                  <stat.icon className="w-5 h-5 sm:w-6 sm:h-6" />
+                <div className={`w-9 h-9 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center shrink-0 ${stat.color}`}>
+                  <stat.icon className="w-4 h-4 sm:w-6 sm:h-6" />
                 </div>
                 <div className="min-w-0">
-                  <p className="text-xl sm:text-2xl font-bold text-foreground">{stat.value}</p>
-                  <p className="text-[10px] sm:text-xs text-muted-foreground leading-tight">{stat.label}</p>
+                  <p className="text-lg sm:text-2xl font-bold text-foreground leading-tight">{stat.value}</p>
+                  <p className="text-[9px] sm:text-xs text-muted-foreground leading-tight">{stat.label}</p>
                 </div>
               </CardContent>
             </Card>
@@ -183,17 +237,17 @@ export default function Dashboard() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
           <Card className="shadow-card border-0">
             <CardHeader className="pb-2">
-              <CardTitle className="text-base flex items-center gap-2">
-                <BarChart3 className="w-5 h-5 text-primary" />
+              <CardTitle className="text-sm sm:text-base flex items-center gap-2">
+                <BarChart3 className="w-4 h-4 sm:w-5 sm:h-5 text-primary" />
                 نسب الإنجاز
               </CardTitle>
             </CardHeader>
             <CardContent>
               {taskPieData.length > 0 ? (
                 <div className="flex flex-col sm:flex-row items-center gap-4">
-                  <ResponsiveContainer width={150} height={150}>
+                  <ResponsiveContainer width={130} height={130}>
                     <PieChart>
-                      <Pie data={taskPieData} cx="50%" cy="50%" innerRadius={35} outerRadius={65} dataKey="value" stroke="none">
+                      <Pie data={taskPieData} cx="50%" cy="50%" innerRadius={30} outerRadius={58} dataKey="value" stroke="none">
                         {taskPieData.map((entry, i) => (
                           <Cell key={i} fill={entry.color} />
                         ))}
@@ -201,11 +255,11 @@ export default function Dashboard() {
                       <Tooltip />
                     </PieChart>
                   </ResponsiveContainer>
-                  <div className="space-y-2">
+                  <div className="space-y-2 flex-1">
                     {taskPieData.map((d) => (
-                      <div key={d.name} className="flex items-center gap-2 text-sm">
-                        <div className="w-3 h-3 rounded-full" style={{ background: d.color }} />
-                        <span className="text-muted-foreground">{d.name}</span>
+                      <div key={d.name} className="flex items-center gap-2 text-xs sm:text-sm">
+                        <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: d.color }} />
+                        <span className="text-muted-foreground flex-1">{d.name}</span>
                         <span className="font-bold">{d.value}</span>
                       </div>
                     ))}
@@ -219,24 +273,26 @@ export default function Dashboard() {
 
           <Card className="shadow-card border-0">
             <CardHeader className="pb-2">
-              <CardTitle className="text-base flex items-center gap-2">
-                <CalendarDays className="w-5 h-5 text-warning" />
+              <CardTitle className="text-sm sm:text-base flex items-center gap-2">
+                <CalendarDays className="w-4 h-4 sm:w-5 sm:h-5 text-warning" />
                 تنبيهات الموارد البشرية
                 {pendingLeaves.length > 0 && (
-                  <Badge className="bg-destructive text-destructive-foreground mr-auto">{pendingLeaves.length}</Badge>
+                  <Badge className="bg-destructive text-destructive-foreground mr-auto text-xs">{pendingLeaves.length}</Badge>
                 )}
               </CardTitle>
             </CardHeader>
             <CardContent>
-              {pendingLeaves.length > 0 ? (
+              {role === "individual" ? (
+                <p className="text-sm text-muted-foreground py-4 text-center">يمكنك تقديم طلب جديد من صفحة الموارد البشرية</p>
+              ) : pendingLeaves.length > 0 ? (
                 <div className="space-y-2">
                   {pendingLeaves.map((lr: any) => (
-                    <div key={lr.id} className="flex items-center justify-between p-2 bg-muted rounded-lg text-sm">
+                    <div key={lr.id} className="flex items-center justify-between p-2 bg-muted rounded-lg text-xs sm:text-sm">
                       <div>
                         <span className="font-medium">{lr.leave_type === "leave" ? "إجازة" : "زمنية"}</span>
                         <span className="text-muted-foreground mr-2">{lr.start_date}</span>
                       </div>
-                      <Button size="sm" variant="outline" onClick={() => navigate("/hr")}>مراجعة</Button>
+                      <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => navigate("/hr")}>مراجعة</Button>
                     </div>
                   ))}
                 </div>
@@ -247,18 +303,18 @@ export default function Dashboard() {
           </Card>
         </div>
 
-        {/* Incomplete Curricula Alerts - enhanced for individuals */}
+        {/* Incomplete Curricula */}
         {curriculaGaps.length > 0 && role === "individual" && (
           <div className="p-3 bg-warning/10 border border-warning/30 rounded-lg text-sm font-medium text-warning flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4" />
-            مهمة تلقائية لإكمال بيانات — لديك {curriculaGaps.length} منهاج يحتاج لإكمال بيانات ناقصة
+            <AlertTriangle className="w-4 h-4 shrink-0" />
+            <span>لديك {curriculaGaps.length} منهاج يحتاج لإكمال بيانات ناقصة</span>
           </div>
         )}
         <IncompleteCurriculaAlert gaps={curriculaGaps} />
 
         {/* Popup for attendance details */}
         <Dialog open={!!popupData} onOpenChange={() => setPopupData(null)}>
-          <DialogContent>
+          <DialogContent className="mx-4 sm:mx-auto">
             <DialogHeader>
               <DialogTitle className="font-cairo">{popupData?.title}</DialogTitle>
             </DialogHeader>
@@ -269,7 +325,7 @@ export default function Dashboard() {
                 popupData?.items?.map((item: any, i: number) => (
                   <div key={i} className="flex items-center justify-between p-2 bg-muted rounded-lg text-sm">
                     <span>{item.profiles?.full_name ?? "—"}</span>
-                    <Badge variant="outline">
+                    <Badge variant="outline" className="text-xs">
                       {item.profiles?.duty_system === "daily" ? "يومي" : item.profiles?.duty_system === "shift_77" ? "بديل 77" : "بديل 1515"}
                     </Badge>
                   </div>

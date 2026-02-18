@@ -8,31 +8,52 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { CalendarDays, Clock, CheckCircle, XCircle, Undo2, Plus, User, Users, Activity } from "lucide-react";
+import {
+  CalendarDays, Clock, CheckCircle, XCircle, Undo2, Plus, User,
+  Users, Activity, ChevronDown, FileText, Timer, LogOut, ClipboardList, HeartHandshake, Search, X
+} from "lucide-react";
 import UserDossier from "@/components/hr/UserDossier";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 const statusLabels: Record<string, string> = {
   pending: "معلّق", unit_head_approved: "موافق (مسؤول)", unit_head_rejected: "مرفوض (مسؤول)",
   admin_approved: "موافق نهائياً", admin_rejected: "مرفوض نهائياً",
 };
 const statusColors: Record<string, string> = {
-  pending: "bg-warning/10 text-warning", unit_head_approved: "bg-info/10 text-info",
-  unit_head_rejected: "bg-destructive/10 text-destructive", admin_approved: "bg-success/10 text-success",
-  admin_rejected: "bg-destructive/10 text-destructive",
+  pending: "bg-warning/10 text-warning border border-warning/30",
+  unit_head_approved: "bg-info/10 text-info border border-info/30",
+  unit_head_rejected: "bg-destructive/10 text-destructive border border-destructive/30",
+  admin_approved: "bg-success/10 text-success border border-success/30",
+  admin_rejected: "bg-destructive/10 text-destructive border border-destructive/30",
 };
 const unitLabels: Record<string, string> = { preparation: "شعبة الإعداد", curriculum: "شعبة المناهج" };
+
+const requestTypeLabels: Record<string, string> = {
+  leave: "إجازة اعتيادية",
+  time_off: "زمنية",
+  exit: "خروجية",
+  task_request: "طلب مهمة",
+  personal: "طلب شخصي",
+};
+const requestTypeIcons: Record<string, typeof CalendarDays> = {
+  leave: CalendarDays, time_off: Timer, exit: LogOut,
+  task_request: ClipboardList, personal: HeartHandshake,
+};
 
 export default function HRPage() {
   const { user, role } = useAuth();
   const { toast } = useToast();
+  const isMobile = useIsMobile();
   const [leaveRequests, setLeaveRequests] = useState<any[]>([]);
   const [attendance, setAttendance] = useState<any[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [requestType, setRequestType] = useState("leave");
   const [attendanceDialog, setAttendanceDialog] = useState(false);
   const [loading, setLoading] = useState(true);
   const [members, setMembers] = useState<any[]>([]);
@@ -41,14 +62,15 @@ export default function HRPage() {
   const [applicantInfo, setApplicantInfo] = useState<any>(null);
   const [infoDialogOpen, setInfoDialogOpen] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState<any>(null);
+  const [search, setSearch] = useState("");
 
-  // Users tab state
+  // Users tab
   const [allUsers, setAllUsers] = useState<any[]>([]);
   const [usersFilterUnit, setUsersFilterUnit] = useState("all");
   const [dossierOpen, setDossierOpen] = useState(false);
   const [dossierUser, setDossierUser] = useState<{ userId: string; fullName: string }>({ userId: "", fullName: "" });
 
-  // Activity log state
+  // Activity log
   const [activityLogs, setActivityLogs] = useState<any[]>([]);
   const [activityLoading, setActivityLoading] = useState(false);
 
@@ -68,14 +90,32 @@ export default function HRPage() {
     setLoading(false);
   };
 
+  const openRequestDialog = (type: string) => {
+    setRequestType(type);
+    setForm({ leave_type: type === "leave" || type === "time_off" || type === "exit" ? type : "leave", start_date: "", end_date: "", hours: "", reason: "" });
+    setDialogOpen(true);
+  };
+
   const handleLeaveRequest = async (e: React.FormEvent) => {
     e.preventDefault();
-    const body: any = { user_id: user!.id, leave_type: form.leave_type, start_date: form.start_date, reason: form.reason };
-    if (form.leave_type === "leave") body.end_date = form.end_date;
-    else body.hours = parseFloat(form.hours);
+    const body: any = {
+      user_id: user!.id,
+      leave_type: (requestType === "leave" || requestType === "time_off") ? requestType : "leave",
+      start_date: form.start_date,
+      reason: (requestType === "task_request" || requestType === "personal" || requestType === "exit")
+        ? `[${requestTypeLabels[requestType]}] ${form.reason}`
+        : form.reason,
+    };
+    if (requestType === "leave") body.end_date = form.end_date;
+    if (requestType === "time_off") body.hours = parseFloat(form.hours);
     const { error } = await supabase.from("leave_requests").insert(body);
     if (error) toast({ title: "خطأ", description: error.message, variant: "destructive" });
-    else { toast({ title: "تم تقديم الطلب بنجاح" }); setDialogOpen(false); setForm({ leave_type: "leave", start_date: "", end_date: "", hours: "", reason: "" }); fetchData(); }
+    else {
+      toast({ title: "تم تقديم الطلب بنجاح" });
+      setDialogOpen(false);
+      setForm({ leave_type: "leave", start_date: "", end_date: "", hours: "", reason: "" });
+      fetchData();
+    }
   };
 
   const fetchApplicantInfo = async (lr: any) => {
@@ -87,8 +127,7 @@ export default function HRPage() {
     const endOfMonth = new Date(new Date(currentMonth).getFullYear(), new Date(currentMonth).getMonth() + 1, 0).toISOString().slice(0, 10);
     const { data: monthRequests } = await supabase.from("leave_requests")
       .select("*").eq("user_id", lr.user_id)
-      .gte("start_date", startOfMonth).lte("start_date", endOfMonth)
-      .neq("id", lr.id);
+      .gte("start_date", startOfMonth).lte("start_date", endOfMonth).neq("id", lr.id);
     const member = members.find(m => m.user_id === lr.user_id);
     setApplicantInfo({ name: member?.full_name ?? "—", balance, monthRequests: monthRequests ?? [] });
     setInfoDialogOpen(true);
@@ -97,15 +136,11 @@ export default function HRPage() {
   const handleApproval = async (id: string, decision: string) => {
     const updates: any = {};
     if (role === "unit_head") {
-      updates.unit_head_decision = decision;
-      updates.unit_head_id = user!.id;
-      updates.unit_head_date = new Date().toISOString();
-      updates.status = decision;
+      updates.unit_head_decision = decision; updates.unit_head_id = user!.id;
+      updates.unit_head_date = new Date().toISOString(); updates.status = decision;
     } else if (role === "admin") {
-      updates.admin_decision = decision;
-      updates.admin_id = user!.id;
-      updates.admin_date = new Date().toISOString();
-      updates.status = decision;
+      updates.admin_decision = decision; updates.admin_id = user!.id;
+      updates.admin_date = new Date().toISOString(); updates.status = decision;
     }
     const { error } = await supabase.from("leave_requests").update(updates).eq("id", id);
     if (error) toast({ title: "خطأ", description: error.message, variant: "destructive" });
@@ -150,35 +185,90 @@ export default function HRPage() {
   };
 
   const actionLabels: Record<string, string> = {
-    update_curriculum: "تعديل منهاج",
-    create_user: "إنشاء مستخدم",
-    disable_user: "تعطيل حساب",
-    enable_user: "تفعيل حساب",
-    reset_password: "إعادة تعيين كلمة مرور",
-    update_profile: "تعديل بيانات",
+    update_curriculum: "تعديل منهاج", create_user: "إنشاء مستخدم",
+    disable_user: "تعطيل حساب", enable_user: "تفعيل حساب",
+    reset_password: "إعادة تعيين كلمة مرور", update_profile: "تعديل بيانات",
   };
 
   const getUserName = (userId: string | null) => {
     if (!userId) return "—";
-    const m = members.find(p => p.user_id === userId);
-    return m?.full_name ?? "مستخدم";
+    return members.find(p => p.user_id === userId)?.full_name ?? "مستخدم";
   };
+
+  const getRequestLabel = (lr: any) => {
+    if (lr.reason?.startsWith("[")) {
+      const match = lr.reason.match(/^\[([^\]]+)\]/);
+      if (match) return match[1];
+    }
+    return lr.leave_type === "leave" ? "إجازة اعتيادية" : "زمنية";
+  };
+
+  const filteredRequests = leaveRequests.filter(lr => {
+    if (!search) return true;
+    const label = getRequestLabel(lr);
+    return label.includes(search) || lr.reason?.includes(search) || lr.start_date?.includes(search);
+  });
+
+  // Request dialog content
+  const renderRequestForm = () => (
+    <form onSubmit={handleLeaveRequest} className="space-y-4">
+      <div className="p-3 bg-primary/10 border border-primary/20 rounded-lg flex items-center gap-2">
+        {requestType in requestTypeIcons && (() => {
+          const Icon = requestTypeIcons[requestType];
+          return <Icon className="w-4 h-4 text-primary" />;
+        })()}
+        <span className="text-sm font-medium text-primary">{requestTypeLabels[requestType]}</span>
+      </div>
+
+      <div className="space-y-2">
+        <Label>التاريخ</Label>
+        <Input type="date" value={form.start_date} onChange={(e) => setForm({ ...form, start_date: e.target.value })} required />
+      </div>
+
+      {requestType === "leave" && (
+        <div className="space-y-2">
+          <Label>تاريخ النهاية</Label>
+          <Input type="date" value={form.end_date} onChange={(e) => setForm({ ...form, end_date: e.target.value })} required />
+        </div>
+      )}
+
+      {requestType === "time_off" && (
+        <div className="space-y-2">
+          <Label>عدد الساعات</Label>
+          <Input type="number" step="0.5" min="0.5" max="7" value={form.hours} onChange={(e) => setForm({ ...form, hours: e.target.value })} required />
+        </div>
+      )}
+
+      <div className="space-y-2">
+        <Label>السبب {(requestType === "task_request" || requestType === "personal") ? "*" : "(اختياري)"}</Label>
+        <Textarea value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })}
+          placeholder={requestType === "task_request" ? "اشرح تفاصيل المهمة المطلوبة..." : requestType === "personal" ? "اشرح طلبك..." : "اختياري"}
+          required={requestType === "task_request" || requestType === "personal"}
+        />
+      </div>
+
+      <Button type="submit" className="w-full gradient-primary text-white">تقديم الطلب</Button>
+    </form>
+  );
 
   return (
     <AppLayout>
-      <div className="space-y-6">
+      <div className="space-y-4">
+        {/* Header */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
           <div>
             <h2 className="text-lg sm:text-xl font-bold font-cairo flex items-center gap-2">
               <CalendarDays className="w-5 h-5 sm:w-6 sm:h-6 text-warning" />الموارد البشرية
             </h2>
-            <p className="text-xs sm:text-sm text-muted-foreground">الحضور والإجازات ودورة الموافقة</p>
+            <p className="text-xs sm:text-sm text-muted-foreground">الحضور والطلبات ودورة الموافقة</p>
           </div>
-          <div className="flex gap-2 w-full sm:w-auto">
+          <div className="flex gap-2 w-full sm:w-auto flex-wrap">
             {(role === "admin" || role === "unit_head") && (
               <Dialog open={attendanceDialog} onOpenChange={setAttendanceDialog}>
                 <DialogTrigger asChild>
-                  <Button variant="outline" className="gap-1 text-xs sm:text-sm sm:gap-2"><Clock className="w-4 h-4" /><span className="hidden sm:inline">تسجيل</span> حضور</Button>
+                  <Button variant="outline" className="gap-1 text-xs sm:text-sm flex-1 sm:flex-none">
+                    <Clock className="w-4 h-4" />تسجيل حضور
+                  </Button>
                 </DialogTrigger>
                 <DialogContent>
                   <DialogHeader><DialogTitle className="font-cairo">تسجيل الحضور اليومي</DialogTitle></DialogHeader>
@@ -214,310 +304,343 @@ export default function HRPage() {
                 </DialogContent>
               </Dialog>
             )}
-            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-              <DialogTrigger asChild>
-                <Button className="gradient-primary text-white gap-2"><Plus className="w-4 h-4" />طلب إجازة</Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader><DialogTitle className="font-cairo">طلب إجازة / زمنية</DialogTitle></DialogHeader>
-                <form onSubmit={handleLeaveRequest} className="space-y-4">
-                  <div className="space-y-2">
-                    <Label>النوع</Label>
-                    <Select value={form.leave_type} onValueChange={(v) => setForm({ ...form, leave_type: v })}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="leave">إجازة (يوم)</SelectItem>
-                        <SelectItem value="time_off">زمنية (ساعات)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>تاريخ البداية</Label>
-                    <Input type="date" value={form.start_date} onChange={(e) => setForm({ ...form, start_date: e.target.value })} required />
-                  </div>
-                  {form.leave_type === "leave" && (
-                    <div className="space-y-2">
-                      <Label>تاريخ النهاية</Label>
-                      <Input type="date" value={form.end_date} onChange={(e) => setForm({ ...form, end_date: e.target.value })} required />
-                    </div>
-                  )}
-                  {form.leave_type === "time_off" && (
-                    <div className="space-y-2">
-                      <Label>عدد الساعات</Label>
-                      <Input type="number" step="0.5" min="0.5" max="7" value={form.hours} onChange={(e) => setForm({ ...form, hours: e.target.value })} required />
-                    </div>
-                  )}
-                  <div className="space-y-2">
-                    <Label>السبب</Label>
-                    <Textarea value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} />
-                  </div>
-                  <Button type="submit" className="w-full gradient-primary text-white">تقديم الطلب</Button>
-                </form>
-              </DialogContent>
-            </Dialog>
+
+            {/* "طلب جديد" dropdown for individuals; single button for admins */}
+            {role === "individual" ? (
+              <>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button className="gradient-primary text-white gap-2 flex-1 sm:flex-none">
+                      <Plus className="w-4 h-4" />طلب جديد
+                      <ChevronDown className="w-3 h-3" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-48 bg-card border border-border shadow-elevated z-50">
+                    {Object.entries(requestTypeLabels).map(([type, label]) => {
+                      const Icon = requestTypeIcons[type];
+                      return (
+                        <DropdownMenuItem
+                          key={type}
+                          onClick={() => openRequestDialog(type)}
+                          className="gap-2 cursor-pointer"
+                        >
+                          <Icon className="w-4 h-4 text-muted-foreground" />
+                          {label}
+                        </DropdownMenuItem>
+                      );
+                    })}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+                  <DialogContent className="max-w-md mx-4 sm:mx-auto">
+                    <DialogHeader>
+                      <DialogTitle className="font-cairo">طلب جديد</DialogTitle>
+                    </DialogHeader>
+                    {renderRequestForm()}
+                  </DialogContent>
+                </Dialog>
+              </>
+            ) : (
+              <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button className="gradient-primary text-white gap-2 flex-1 sm:flex-none" onClick={() => openRequestDialog("leave")}>
+                    <Plus className="w-4 h-4" />طلب إجازة
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-md mx-4 sm:mx-auto">
+                  <DialogHeader><DialogTitle className="font-cairo">طلب إجازة / زمنية</DialogTitle></DialogHeader>
+                  {renderRequestForm()}
+                </DialogContent>
+              </Dialog>
+            )}
           </div>
         </div>
 
         <Tabs defaultValue="requests" className="w-full">
-          <TabsList>
-            <TabsTrigger value="requests">طلبات الإجازات</TabsTrigger>
-            <TabsTrigger value="attendance">سجل الحضور</TabsTrigger>
+          <TabsList className="w-full sm:w-auto overflow-x-auto flex-nowrap">
+            <TabsTrigger value="requests" className="text-xs sm:text-sm">الطلبات</TabsTrigger>
+            <TabsTrigger value="attendance" className="text-xs sm:text-sm">الحضور</TabsTrigger>
             {(role === "admin" || role === "unit_head") && (
               <>
-                <TabsTrigger value="users" className="gap-1"><Users className="w-4 h-4" />عرض المستخدمين</TabsTrigger>
-                <TabsTrigger value="activity" className="gap-1" onClick={() => { if (activityLogs.length === 0) fetchActivityLogs(); }}><Activity className="w-4 h-4" />سجل النشاط</TabsTrigger>
+                <TabsTrigger value="users" className="gap-1 text-xs sm:text-sm">
+                  <Users className="w-3.5 h-3.5" /><span className="hidden sm:inline">عرض</span> المستخدمين
+                </TabsTrigger>
+                <TabsTrigger value="activity" className="gap-1 text-xs sm:text-sm" onClick={() => { if (activityLogs.length === 0) fetchActivityLogs(); }}>
+                  <Activity className="w-3.5 h-3.5" /><span className="hidden sm:inline">سجل</span> النشاط
+                </TabsTrigger>
               </>
             )}
           </TabsList>
 
           <TabsContent value="requests">
-            <Card className="shadow-card border-0">
-              <CardContent className="p-0">
-                <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="text-right">النوع</TableHead>
-                      <TableHead className="text-right">التاريخ</TableHead>
-                      <TableHead className="text-right">الحالة</TableHead>
-                      <TableHead className="text-right">مسؤول الشعبة</TableHead>
-                      <TableHead className="text-right">المدير</TableHead>
-                      {(role === "admin" || role === "unit_head") && <TableHead className="text-right">إجراء</TableHead>}
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {leaveRequests.length === 0 ? (
-                      <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">لا توجد طلبات</TableCell></TableRow>
-                    ) : leaveRequests.map((lr) => (
-                      <TableRow key={lr.id}>
-                        <TableCell>{lr.leave_type === "leave" ? "إجازة" : `زمنية (${lr.hours} ساعة)`}</TableCell>
-                        <TableCell>{lr.start_date}{lr.end_date ? ` → ${lr.end_date}` : ""}</TableCell>
-                        <TableCell><Badge className={statusColors[lr.status] ?? ""}>{statusLabels[lr.status] ?? lr.status}</Badge></TableCell>
-                        <TableCell>{statusLabels[lr.unit_head_decision] ?? "—"}</TableCell>
-                        <TableCell>{statusLabels[lr.admin_decision] ?? "—"}</TableCell>
-                        {(role === "admin" || role === "unit_head") && (
-                          <TableCell>
-                            <div className="flex gap-1">
-                              {(lr.status === "pending" || (role === "admin" && lr.status === "unit_head_approved")) && (
-                                <Button size="sm" variant="ghost" className="text-info h-7 gap-1" onClick={() => fetchApplicantInfo(lr)}>
-                                  <User className="w-3 h-3" />مراجعة
-                                </Button>
-                              )}
-                              {isDecisionMade(lr) && (
-                                <Button size="sm" variant="ghost" className="text-warning h-7 gap-1" onClick={() => handleUndo(lr.id)}>
-                                  <Undo2 className="w-3 h-3" />تراجع
-                                </Button>
-                              )}
-                            </div>
-                          </TableCell>
-                        )}
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-                </div>
-              </CardContent>
-            </Card>
+            {/* Search */}
+            <div className="relative mb-3">
+              <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input placeholder="ابحث في الطلبات..." value={search} onChange={(e) => setSearch(e.target.value)} className="pr-10" />
+              {search && (
+                <button onClick={() => setSearch("")} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+
+            {isMobile ? (
+              <div className="space-y-3">
+                {filteredRequests.length === 0 ? (
+                  <p className="text-center py-8 text-muted-foreground">لا توجد طلبات</p>
+                ) : filteredRequests.map((lr) => (
+                  <Card key={lr.id} className="shadow-card border-0">
+                    <CardContent className="p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium text-sm">{getRequestLabel(lr)}</span>
+                        <Badge className={`text-xs ${statusColors[lr.status] ?? ""}`}>{statusLabels[lr.status] ?? lr.status}</Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {lr.start_date}{lr.end_date ? ` ← ${lr.end_date}` : ""}
+                        {lr.hours ? ` (${lr.hours} ساعة)` : ""}
+                      </p>
+                      {lr.reason && <p className="text-xs text-muted-foreground line-clamp-2">{lr.reason}</p>}
+                      {(role === "admin" || role === "unit_head") && (
+                        <div className="flex gap-2 pt-1">
+                          {(lr.status === "pending" || (role === "admin" && lr.status === "unit_head_approved")) && (
+                            <Button size="sm" variant="outline" className="flex-1 h-7 text-xs text-info border-info/30" onClick={() => fetchApplicantInfo(lr)}>
+                              <User className="w-3 h-3 ml-1" />مراجعة
+                            </Button>
+                          )}
+                          {isDecisionMade(lr) && (
+                            <Button size="sm" variant="outline" className="flex-1 h-7 text-xs text-warning border-warning/30" onClick={() => handleUndo(lr.id)}>
+                              <Undo2 className="w-3 h-3 ml-1" />تراجع
+                            </Button>
+                          )}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            ) : (
+              <Card className="shadow-card border-0">
+                <CardContent className="p-0">
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="text-right">نوع الطلب</TableHead>
+                          <TableHead className="text-right">التاريخ</TableHead>
+                          <TableHead className="text-right">الحالة</TableHead>
+                          <TableHead className="text-right">مسؤول الشعبة</TableHead>
+                          <TableHead className="text-right">المدير</TableHead>
+                          {(role === "admin" || role === "unit_head") && <TableHead className="text-right">إجراء</TableHead>}
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {filteredRequests.length === 0 ? (
+                          <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">لا توجد طلبات</TableCell></TableRow>
+                        ) : filteredRequests.map((lr) => (
+                          <TableRow key={lr.id}>
+                            <TableCell className="font-medium">{getRequestLabel(lr)}</TableCell>
+                            <TableCell className="text-sm">{lr.start_date}{lr.end_date ? ` → ${lr.end_date}` : ""}{lr.hours ? ` (${lr.hours}س)` : ""}</TableCell>
+                            <TableCell><Badge className={`text-xs ${statusColors[lr.status] ?? ""}`}>{statusLabels[lr.status] ?? lr.status}</Badge></TableCell>
+                            <TableCell className="text-xs">{statusLabels[lr.unit_head_decision] ?? "—"}</TableCell>
+                            <TableCell className="text-xs">{statusLabels[lr.admin_decision] ?? "—"}</TableCell>
+                            {(role === "admin" || role === "unit_head") && (
+                              <TableCell>
+                                <div className="flex gap-1">
+                                  {(lr.status === "pending" || (role === "admin" && lr.status === "unit_head_approved")) && (
+                                    <Button size="sm" variant="ghost" className="text-info h-7 gap-1 text-xs" onClick={() => fetchApplicantInfo(lr)}>
+                                      <User className="w-3 h-3" />مراجعة
+                                    </Button>
+                                  )}
+                                  {isDecisionMade(lr) && (
+                                    <Button size="sm" variant="ghost" className="text-warning h-7 gap-1 text-xs" onClick={() => handleUndo(lr.id)}>
+                                      <Undo2 className="w-3 h-3" />تراجع
+                                    </Button>
+                                  )}
+                                </div>
+                              </TableCell>
+                            )}
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
           </TabsContent>
 
           <TabsContent value="attendance">
             <Card className="shadow-card border-0">
               <CardContent className="p-0">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="text-right">التاريخ</TableHead>
-                      <TableHead className="text-right">الحالة</TableHead>
-                      <TableHead className="text-right">ملاحظات</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {attendance.length === 0 ? (
-                      <TableRow><TableCell colSpan={3} className="text-center py-8 text-muted-foreground">لا توجد سجلات اليوم</TableCell></TableRow>
-                    ) : attendance.map((a) => (
-                      <TableRow key={a.id}>
-                        <TableCell>{a.date}</TableCell>
-                        <TableCell>
-                          <Badge variant="outline">
-                            {a.status === "present" ? "حاضر" : a.status === "leave" ? "مجاز" : a.status === "time_off" ? "زمنية" : a.status === "duty" ? "واجب" : "غائب"}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>{a.notes ?? "—"}</TableCell>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="text-right">التاريخ</TableHead>
+                        <TableHead className="text-right">الحالة</TableHead>
+                        <TableHead className="text-right">ملاحظات</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {attendance.length === 0 ? (
+                        <TableRow><TableCell colSpan={3} className="text-center py-8 text-muted-foreground">لا سجلات لليوم</TableCell></TableRow>
+                      ) : attendance.map((a) => (
+                        <TableRow key={a.id}>
+                          <TableCell>{a.date}</TableCell>
+                          <TableCell>
+                            <Badge className={
+                              a.status === "present" ? "bg-success/10 text-success border border-success/30" :
+                              a.status === "absent" ? "bg-destructive/10 text-destructive border border-destructive/30" :
+                              "bg-warning/10 text-warning border border-warning/30"
+                            }>
+                              {a.status === "present" ? "حاضر" : a.status === "leave" ? "مجاز" : a.status === "time_off" ? "زمنية" : a.status === "duty" ? "واجب" : "غائب"}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-sm text-muted-foreground">{a.notes ?? "—"}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
 
           {(role === "admin" || role === "unit_head") && (
-            <TabsContent value="users">
-              <div className="space-y-4">
-                <div className="flex items-center gap-2">
-                  <Select value={usersFilterUnit} onValueChange={setUsersFilterUnit}>
-                    <SelectTrigger className="w-40"><SelectValue placeholder="فلتر الشعبة" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">جميع الشعب</SelectItem>
-                      <SelectItem value="preparation">شعبة الإعداد</SelectItem>
-                      <SelectItem value="curriculum">شعبة المناهج</SelectItem>
-                    </SelectContent>
-                  </Select>
+            <>
+              <TabsContent value="users">
+                <div className="space-y-3">
+                  <div className="flex gap-2 flex-wrap">
+                    {["all", "preparation", "curriculum"].map((u) => (
+                      <button
+                        key={u}
+                        onClick={() => setUsersFilterUnit(u)}
+                        className={`text-sm px-3 py-1.5 rounded-full border transition-all ${usersFilterUnit === u ? "bg-primary text-primary-foreground border-primary" : "bg-muted text-muted-foreground border-border hover:border-primary/40"}`}
+                      >
+                        {u === "all" ? "الكل" : unitLabels[u]}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {filteredUsers.map((u: any) => (
+                      <Card key={u.user_id} className="shadow-card border-0 cursor-pointer hover:shadow-elevated transition-all"
+                        onClick={() => { setDossierUser({ userId: u.user_id, fullName: u.full_name }); setDossierOpen(true); }}>
+                        <CardContent className="p-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-full gradient-primary flex items-center justify-center text-white font-bold text-sm shrink-0">
+                              {u.full_name?.charAt(0)}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="font-medium text-sm truncate">{u.full_name}</p>
+                              <p className="text-xs text-muted-foreground">{unitLabels[u.unit] ?? "—"}</p>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
                 </div>
-                <Card className="shadow-card border-0">
-                  <CardContent className="p-0">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="text-right">الاسم</TableHead>
-                          <TableHead className="text-right">الشعبة</TableHead>
-                          <TableHead className="text-right">إجراء</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {filteredUsers.length === 0 ? (
-                          <TableRow><TableCell colSpan={3} className="text-center py-8 text-muted-foreground">لا يوجد مستخدمون</TableCell></TableRow>
-                        ) : filteredUsers.map(u => (
-                          <TableRow key={u.user_id}>
-                            <TableCell className="font-medium">{u.full_name}</TableCell>
-                            <TableCell>{unitLabels[u.unit] ?? "—"}</TableCell>
-                            <TableCell>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-7 gap-1 text-primary"
-                                onClick={() => { setDossierUser({ userId: u.user_id, fullName: u.full_name }); setDossierOpen(true); }}
-                              >
-                                <User className="w-3 h-3" />عرض الملف
-                              </Button>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </CardContent>
-                </Card>
-              </div>
-            </TabsContent>
-          )}
+                <UserDossier open={dossierOpen} onOpenChange={setDossierOpen} userId={dossierUser.userId} fullName={dossierUser.fullName} />
+              </TabsContent>
 
-          {(role === "admin" || role === "unit_head") && (
-            <TabsContent value="activity">
-              <Card className="shadow-card border-0">
-                <CardHeader>
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <Activity className="w-5 h-5 text-primary" />
-                    سجل نشاط الشعبة
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="p-0">
-                  {activityLoading ? (
-                    <p className="text-center py-8 text-muted-foreground">جاري التحميل...</p>
-                  ) : activityLogs.length === 0 ? (
-                    <p className="text-center py-8 text-muted-foreground">لا توجد سجلات نشاط</p>
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead className="text-right">المستخدم</TableHead>
-                            <TableHead className="text-right">الحركة</TableHead>
-                            <TableHead className="text-right">التفاصيل</TableHead>
-                            <TableHead className="text-right">التاريخ</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {activityLogs.map(log => (
-                            <TableRow key={log.id}>
-                              <TableCell className="font-medium">{getUserName(log.user_id)}</TableCell>
-                              <TableCell>
-                                <Badge variant="outline">{actionLabels[log.action] ?? log.action}</Badge>
-                              </TableCell>
-                              <TableCell className="text-sm max-w-xs truncate">
-                                {log.details && typeof log.details === "object" && (log.details as any).title
-                                  ? (log.details as any).title
-                                  : log.target_type ?? "—"}
-                              </TableCell>
-                              <TableCell className="text-sm text-muted-foreground">
-                                {new Date(log.created_at).toLocaleString("ar-SA", { dateStyle: "short", timeStyle: "short" })}
-                              </TableCell>
+              <TabsContent value="activity">
+                {activityLoading ? (
+                  <p className="text-center py-8 text-muted-foreground">جاري التحميل...</p>
+                ) : (
+                  <Card className="shadow-card border-0">
+                    <CardContent className="p-0">
+                      <div className="overflow-x-auto">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead className="text-right">الإجراء</TableHead>
+                              <TableHead className="text-right">المستخدم</TableHead>
+                              <TableHead className="text-right">الوقت</TableHead>
                             </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </TabsContent>
+                          </TableHeader>
+                          <TableBody>
+                            {activityLogs.length === 0 ? (
+                              <TableRow><TableCell colSpan={3} className="text-center py-8 text-muted-foreground">لا سجلات</TableCell></TableRow>
+                            ) : activityLogs.map((log) => (
+                              <TableRow key={log.id}>
+                                <TableCell className="font-medium text-sm">{actionLabels[log.action] ?? log.action}</TableCell>
+                                <TableCell className="text-sm">{getUserName(log.user_id)}</TableCell>
+                                <TableCell className="text-xs text-muted-foreground">{new Date(log.created_at).toLocaleString("ar-SA")}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+              </TabsContent>
+            </>
           )}
         </Tabs>
 
-        {/* Applicant Info & Approval Dialog */}
+        {/* Applicant Info Dialog */}
         <Dialog open={infoDialogOpen} onOpenChange={setInfoDialogOpen}>
-          <DialogContent className="max-w-md">
-            <DialogHeader><DialogTitle className="font-cairo">بيانات مقدم الطلب</DialogTitle></DialogHeader>
+          <DialogContent className="max-w-md mx-4 sm:mx-auto">
+            <DialogHeader><DialogTitle className="font-cairo">مراجعة الطلب</DialogTitle></DialogHeader>
             {applicantInfo && selectedRequest && (
               <div className="space-y-4">
                 <div className="p-3 bg-muted rounded-lg">
-                  <p className="font-bold text-lg">{applicantInfo.name}</p>
-                  <p className="text-sm text-muted-foreground">
-                    {selectedRequest.leave_type === "leave" ? "إجازة" : "زمنية"} - {selectedRequest.start_date}
+                  <p className="text-sm font-bold">{applicantInfo.name}</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    نوع الطلب: {getRequestLabel(selectedRequest)}
                   </p>
+                  {selectedRequest.reason && <p className="text-xs text-muted-foreground">السبب: {selectedRequest.reason}</p>}
                 </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="p-3 border rounded-lg text-center">
-                    <p className="text-xs text-muted-foreground">رصيد الإجازات</p>
-                    <p className="text-2xl font-bold text-primary">
-                      {applicantInfo.balance ? (applicantInfo.balance.leave_days_total - applicantInfo.balance.leave_days_used) : "—"}
-                    </p>
-                    <p className="text-xs text-muted-foreground">يوم متبقي</p>
+
+                {applicantInfo.balance && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="p-3 bg-primary/10 rounded-lg text-center">
+                      <p className="text-xs text-muted-foreground">رصيد الإجازات</p>
+                      <p className="text-lg font-bold text-primary">
+                        {Number(applicantInfo.balance.leave_days_total) - Number(applicantInfo.balance.leave_days_used)} يوم
+                      </p>
+                    </div>
+                    <div className="p-3 bg-info/10 rounded-lg text-center">
+                      <p className="text-xs text-muted-foreground">رصيد الزمنيات</p>
+                      <p className="text-lg font-bold text-info">
+                        {Number(applicantInfo.balance.time_off_hours_total) - Number(applicantInfo.balance.time_off_hours_used)} ساعة
+                      </p>
+                    </div>
                   </div>
-                  <div className="p-3 border rounded-lg text-center">
-                    <p className="text-xs text-muted-foreground">رصيد الزمنية</p>
-                    <p className="text-2xl font-bold text-secondary">
-                      {applicantInfo.balance ? (applicantInfo.balance.time_off_hours_total - applicantInfo.balance.time_off_hours_used) : "—"}
-                    </p>
-                    <p className="text-xs text-muted-foreground">ساعة متبقية</p>
-                  </div>
-                </div>
-                <div className="p-3 border rounded-lg">
-                  <p className="text-sm font-medium mb-2">سجل الشهر الحالي</p>
-                  {applicantInfo.monthRequests.length === 0 ? (
-                    <p className="text-xs text-muted-foreground">لا توجد طلبات سابقة هذا الشهر</p>
-                  ) : (
+                )}
+
+                {applicantInfo.monthRequests.length > 0 && (
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground mb-2">طلبات هذا الشهر:</p>
                     <div className="space-y-1">
                       {applicantInfo.monthRequests.map((r: any) => (
-                        <div key={r.id} className="flex justify-between text-xs">
-                          <span>{r.leave_type === "leave" ? "إجازة" : "زمنية"} - {r.start_date}</span>
-                          <Badge className={`text-xs ${statusColors[r.status]}`}>{statusLabels[r.status]}</Badge>
+                        <div key={r.id} className="flex items-center justify-between p-2 bg-muted rounded text-xs">
+                          <span>{getRequestLabel(r)} — {r.start_date}</span>
+                          <Badge className={`text-xs ${statusColors[r.status] ?? ""}`}>{statusLabels[r.status]}</Badge>
                         </div>
                       ))}
                     </div>
-                  )}
-                </div>
+                  </div>
+                )}
+
                 <div className="flex gap-2 pt-2">
                   <Button className="flex-1 gap-1 bg-success hover:bg-success/90 text-white"
-                    onClick={() => handleApproval(selectedRequest.id, role === "admin" ? "admin_approved" : "unit_head_approved")}>
+                    onClick={() => handleApproval(selectedRequest.id, role === "unit_head" ? "unit_head_approved" : "admin_approved")}>
                     <CheckCircle className="w-4 h-4" />موافقة
                   </Button>
-                  <Button variant="outline" className="flex-1 gap-1 text-destructive border-destructive"
-                    onClick={() => handleApproval(selectedRequest.id, role === "admin" ? "admin_rejected" : "unit_head_rejected")}>
+                  <Button variant="outline" className="flex-1 gap-1 text-destructive border-destructive/30"
+                    onClick={() => handleApproval(selectedRequest.id, role === "unit_head" ? "unit_head_rejected" : "admin_rejected")}>
                     <XCircle className="w-4 h-4" />رفض
+                  </Button>
+                  <Button variant="outline" className="gap-1 text-warning border-warning/30" onClick={() => handleUndo(selectedRequest.id)}>
+                    <Undo2 className="w-4 h-4" />
                   </Button>
                 </div>
               </div>
             )}
           </DialogContent>
         </Dialog>
-
-        {/* User Dossier */}
-        <UserDossier
-          userId={dossierUser.userId}
-          fullName={dossierUser.fullName}
-          open={dossierOpen}
-          onOpenChange={setDossierOpen}
-        />
       </div>
     </AppLayout>
   );
