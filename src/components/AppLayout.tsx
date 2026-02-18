@@ -4,14 +4,14 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import {
   LayoutDashboard, Users, CalendarDays, BookOpen, ClipboardList,
-  BarChart3, Shield, LogOut, Menu, X, ChevronLeft
-} from "lucide-react";
+  BarChart3, Shield, LogOut, Menu, X, ChevronLeft } from
+"lucide-react";
 import { cn } from "@/lib/utils";
 
 const roleLabels: Record<string, string> = {
   admin: "مدير القسم",
   unit_head: "مسؤول شعبة",
-  individual: "فرد",
+  individual: "فرد"
 };
 
 interface NavItem {
@@ -22,22 +22,22 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { label: "لوحة القيادة", path: "/dashboard", icon: LayoutDashboard },
-  { label: "إدارة المستخدمين", path: "/users", icon: Users, roles: ["admin"] },
-  { label: "الموارد البشرية", path: "/hr", icon: CalendarDays },
-  { label: "المناهج والعروض", path: "/curricula", icon: BookOpen, roles: ["admin", "unit_head", "individual"] },
-  { label: "المهام", path: "/tasks", icon: ClipboardList },
-  { label: "التقارير", path: "/reports", icon: BarChart3, roles: ["admin", "unit_head"] },
-];
+{ label: "لوحة القيادة", path: "/dashboard", icon: LayoutDashboard },
+{ label: "إدارة المستخدمين", path: "/users", icon: Users, roles: ["admin"] },
+{ label: "الموارد البشرية", path: "/hr", icon: CalendarDays },
+{ label: "المناهج والعروض", path: "/curricula", icon: BookOpen, roles: ["admin", "unit_head", "individual"] },
+{ label: "المهام", path: "/tasks", icon: ClipboardList },
+{ label: "التقارير", path: "/reports", icon: BarChart3, roles: ["admin", "unit_head"] }];
 
-export default function AppLayout({ children }: { children: ReactNode }) {
+
+export default function AppLayout({ children }: {children: ReactNode;}) {
   const { user, role, signOut } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const filteredNav = navItems.filter(
-    (item) => !item.roles || (role && item.roles.includes(role))
+    (item) => !item.roles || role && item.roles.includes(role)
   );
 
   const handleSignOut = async () => {
@@ -48,20 +48,20 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen bg-background flex">
       {/* Mobile overlay */}
-      {sidebarOpen && (
-        <div
-          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
+      {sidebarOpen &&
+      <div
+        className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+        onClick={() => setSidebarOpen(false)} />
+
+      }
 
       {/* Sidebar */}
       <aside
         className={cn(
           "fixed lg:static inset-y-0 right-0 z-50 w-64 bg-sidebar text-sidebar-foreground flex flex-col transition-transform duration-300 lg:translate-x-0",
           sidebarOpen ? "translate-x-0" : "translate-x-full lg:translate-x-0"
-        )}
-      >
+        )}>
+
         {/* Sidebar Header */}
         <div className="p-4 border-b border-sidebar-border">
           <div className="flex items-center justify-between">
@@ -71,7 +71,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
               </div>
               <div>
                 <h1 className="text-sm font-bold font-cairo">نظام التدريب</h1>
-                <p className="text-xs text-sidebar-foreground/60">
+                <p className="text-xs text-sidebar-foreground/60 font-serif">
                   {roleLabels[role ?? ""] ?? ""}
                 </p>
               </div>
@@ -80,8 +80,8 @@ export default function AppLayout({ children }: { children: ReactNode }) {
               variant="ghost"
               size="icon"
               className="lg:hidden text-sidebar-foreground"
-              onClick={() => setSidebarOpen(false)}
-            >
+              onClick={() => setSidebarOpen(false)}>
+
               <X className="w-5 h-5" />
             </Button>
           </div>
@@ -100,16 +100,16 @@ export default function AppLayout({ children }: { children: ReactNode }) {
                 }}
                 className={cn(
                   "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
-                  isActive
-                    ? "bg-sidebar-primary text-sidebar-primary-foreground"
-                    : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                )}
-              >
+                  isActive ?
+                  "bg-sidebar-primary text-sidebar-primary-foreground" :
+                  "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                )}>
+
                 <item.icon className="w-5 h-5 shrink-0" />
                 <span>{item.label}</span>
                 {isActive && <ChevronLeft className="w-4 h-4 mr-auto" />}
-              </button>
-            );
+              </button>);
+
           })}
         </nav>
 
@@ -126,8 +126,8 @@ export default function AppLayout({ children }: { children: ReactNode }) {
               variant="ghost"
               size="icon"
               onClick={handleSignOut}
-              className="text-sidebar-foreground/60 hover:text-sidebar-foreground shrink-0 h-8 w-8"
-            >
+              className="text-sidebar-foreground/60 hover:text-sidebar-foreground shrink-0 h-8 w-8">
+
               <LogOut className="w-4 h-4" />
             </Button>
           </div>
@@ -146,8 +146,8 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             variant="ghost"
             size="icon"
             onClick={() => setSidebarOpen(true)}
-            className="text-white hover:bg-white/20"
-          >
+            className="text-white hover:bg-white/20">
+
             <Menu className="w-5 h-5" />
           </Button>
         </header>
@@ -156,6 +156,6 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           {children}
         </main>
       </div>
-    </div>
-  );
+    </div>);
+
 }
