@@ -14,7 +14,7 @@ import { Switch } from "@/components/ui/switch"; // أضفنا زر التبدي
 import { useToast } from "@/hooks/use-toast";
 import {
   ClipboardList, Plus, Award, CheckCircle, Play, Send, RotateCcw,
-  Eye, Clock, Search, Filter, MessageCircle, X, ArrowRight
+  Eye, Clock, Search, Filter, MessageCircle, X, ArrowRightForward
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { ar } from "date-fns/locale";
@@ -82,25 +82,12 @@ export default function TasksPage() {
   };
 
   const fetchMembers = async () => {
-    const [profilesRes, rolesRes] = await Promise.all([
-      supabase.from("profiles").select("user_id, full_name, unit").eq("is_disabled", false),
-      supabase.from("user_roles").select("user_id, role"),
-    ]);
-    const rolesMap: Record<string, string> = {};
-    (rolesRes.data ?? []).forEach(r => { rolesMap[r.user_id] = r.role; });
-    const merged = (profilesRes.data ?? []).map(p => ({
-      ...p,
-      role: rolesMap[p.user_id] ?? "individual",
-    }));
-    setMembers(merged);
+    const { data } = await supabase.from("profiles").select("user_id, full_name, role, unit");
+    setMembers(data ?? []);
   };
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.assigned_to) {
-      toast({ title: "يرجى اختيار موظف", variant: "destructive" });
-      return;
-    }
     const assignedMember = members.find(m => m.user_id === form.assigned_to);
     
     const { error } = await supabase.from("tasks").insert({
@@ -173,19 +160,9 @@ export default function TasksPage() {
                   <Textarea placeholder="التفاصيل" onChange={e => setForm({...form, description: e.target.value})} />
                   
                   <Select onValueChange={v => setForm({...form, assigned_to: v})}>
-                    <SelectTrigger>
-                      <SelectValue placeholder={members.length === 0 ? "لا يوجد موظفون..." : "اختر الموظف"} />
-                    </SelectTrigger>
+                    <SelectTrigger><SelectValue placeholder="اختر الموظف" /></SelectTrigger>
                     <SelectContent>
-                      {members.length === 0 ? (
-                        <div className="py-4 text-center text-sm text-muted-foreground">لا يوجد موظفون متاحون</div>
-                      ) : (
-                        members.map(m => (
-                          <SelectItem key={m.user_id} value={m.user_id}>
-                            {m.full_name} {m.unit ? `(${m.unit === 'curriculum' ? 'المناهج' : 'الإعداد'})` : ''}
-                          </SelectItem>
-                        ))
-                      )}
+                      {members.map(m => <SelectItem key={m.user_id} value={m.user_id}>{m.full_name}</SelectItem>)}
                     </SelectContent>
                   </Select>
 
@@ -233,7 +210,7 @@ export default function TasksPage() {
               <div className="flex gap-2">
                 {role === "unit_head" && detailTask?.assigned_to === user?.id && (
                   <Button variant="outline" className="w-full" onClick={() => setForwardDialogOpen(true)}>
-                    <ArrowRight className="ml-2 h-4 w-4" /> تحويل لموظف
+                    <ArrowRightForward className="ml-2 h-4 w-4" /> تحويل لموظف
                   </Button>
                 )}
                 {role === "individual" && detailTask?.status === "assigned" && (
