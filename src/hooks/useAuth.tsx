@@ -9,6 +9,7 @@ interface AuthContextType {
   session: Session | null;
   loading: boolean;
   role: AppRole | null;
+  fullName: string | null; // أضفنا حقل الاسم هنا
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
 }
@@ -20,14 +21,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [role, setRole] = useState<AppRole | null>(null);
+  const [fullName, setFullName] = useState<string | null>(null); // حالة جديدة لتخزين الاسم
 
-  const fetchRole = async (userId: string) => {
-    const { data } = await supabase
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", userId)
-      .maybeSingle();
-    setRole((data?.role as AppRole) ?? null);
+  // دالة مطورة لجلب الرتبة والاسم معاً
+  const fetchUserData = async (userId: string) => {
+    try {
+      // 1. جلب الرتبة من جدول user_roles
+      const { data: roleData } = await supabase
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", userId)
+        .maybeSingle();
+      
+      setRole((roleData?.role as AppRole) ?? null);
+
+      // 2. جلب الاسم الكامل من جدول profiles
+      const { data: profileData } = await supabase
+        .from("profiles")
+        .select("full_name")
+        .eq("user_id", userId)
+        .maybeSingle();
+      
+      setFullName(profileData?.full_name ?? null);
+    } catch (error) {
+      console.error("Error fetching user metadata:", error);
+    }
   };
 
   useEffect(() => {
@@ -36,9 +54,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setSession(session);
         setUser(session?.user ?? null);
         if (session?.user) {
-          setTimeout(() => fetchRole(session.user.id), 0);
+          // جلب البيانات فور تغير حالة تسجيل الدخول
+          fetchUserData(session.user.id);
         } else {
           setRole(null);
+          setFullName(null);
         }
         setLoading(false);
       }
@@ -48,7 +68,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
-        fetchRole(session.user.id);
+        fetchUserData(session.user.id);
       }
       setLoading(false);
     });
@@ -64,10 +84,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = async () => {
     await supabase.auth.signOut();
     setRole(null);
+    setFullName(null);
   };
 
   return (
-    <AuthContext.Provider value={{ user, session, loading, role, signIn, signOut }}>
+    <AuthContext.Provider value={{ user, session, loading, role, fullName, signIn, signOut }}>
       {children}
     </AuthContext.Provider>
   );
