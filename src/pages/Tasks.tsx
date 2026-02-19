@@ -82,12 +82,25 @@ export default function TasksPage() {
   };
 
   const fetchMembers = async () => {
-    const { data } = await supabase.from("profiles").select("user_id, full_name, role, unit");
-    setMembers(data ?? []);
+    const [profilesRes, rolesRes] = await Promise.all([
+      supabase.from("profiles").select("user_id, full_name, unit").eq("is_disabled", false),
+      supabase.from("user_roles").select("user_id, role"),
+    ]);
+    const rolesMap: Record<string, string> = {};
+    (rolesRes.data ?? []).forEach(r => { rolesMap[r.user_id] = r.role; });
+    const merged = (profilesRes.data ?? []).map(p => ({
+      ...p,
+      role: rolesMap[p.user_id] ?? "individual",
+    }));
+    setMembers(merged);
   };
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!form.assigned_to) {
+      toast({ title: "يرجى اختيار موظف", variant: "destructive" });
+      return;
+    }
     const assignedMember = members.find(m => m.user_id === form.assigned_to);
     
     const { error } = await supabase.from("tasks").insert({
@@ -160,9 +173,19 @@ export default function TasksPage() {
                   <Textarea placeholder="التفاصيل" onChange={e => setForm({...form, description: e.target.value})} />
                   
                   <Select onValueChange={v => setForm({...form, assigned_to: v})}>
-                    <SelectTrigger><SelectValue placeholder="اختر الموظف" /></SelectTrigger>
+                    <SelectTrigger>
+                      <SelectValue placeholder={members.length === 0 ? "لا يوجد موظفون..." : "اختر الموظف"} />
+                    </SelectTrigger>
                     <SelectContent>
-                      {members.map(m => <SelectItem key={m.user_id} value={m.user_id}>{m.full_name}</SelectItem>)}
+                      {members.length === 0 ? (
+                        <div className="py-4 text-center text-sm text-muted-foreground">لا يوجد موظفون متاحون</div>
+                      ) : (
+                        members.map(m => (
+                          <SelectItem key={m.user_id} value={m.user_id}>
+                            {m.full_name} {m.unit ? `(${m.unit === 'curriculum' ? 'المناهج' : 'الإعداد'})` : ''}
+                          </SelectItem>
+                        ))
+                      )}
                     </SelectContent>
                   </Select>
 
