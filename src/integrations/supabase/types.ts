@@ -312,7 +312,9 @@ export type Database = {
           description: string | null
           due_date: string | null
           estimated_hours: number | null
+          forwarded_from_id: string | null
           id: string
+          is_visible_to_unit_head: boolean | null
           points_awarded: number | null
           review_notes: string | null
           status: Database["public"]["Enums"]["task_status"]
@@ -330,7 +332,9 @@ export type Database = {
           description?: string | null
           due_date?: string | null
           estimated_hours?: number | null
+          forwarded_from_id?: string | null
           id?: string
+          is_visible_to_unit_head?: boolean | null
           points_awarded?: number | null
           review_notes?: string | null
           status?: Database["public"]["Enums"]["task_status"]
@@ -348,7 +352,9 @@ export type Database = {
           description?: string | null
           due_date?: string | null
           estimated_hours?: number | null
+          forwarded_from_id?: string | null
           id?: string
+          is_visible_to_unit_head?: boolean | null
           points_awarded?: number | null
           review_notes?: string | null
           status?: Database["public"]["Enums"]["task_status"]

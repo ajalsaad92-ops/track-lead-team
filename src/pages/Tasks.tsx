@@ -14,7 +14,7 @@ import { Switch } from "@/components/ui/switch"; // أضفنا زر التبدي
 import { useToast } from "@/hooks/use-toast";
 import {
   ClipboardList, Plus, Award, CheckCircle, Play, Send, RotateCcw,
-  Eye, Clock, Search, Filter, MessageCircle, X, ArrowRightForward
+  Eye, Clock, Search, Filter, MessageCircle, X, ArrowRight
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { ar } from "date-fns/locale";
@@ -210,7 +210,7 @@ export default function TasksPage() {
               <div className="flex gap-2">
                 {role === "unit_head" && detailTask?.assigned_to === user?.id && (
                   <Button variant="outline" className="w-full" onClick={() => setForwardDialogOpen(true)}>
-                    <ArrowRightForward className="ml-2 h-4 w-4" /> تحويل لموظف
+                    <ArrowRight className="ml-2 h-4 w-4" /> تحويل لموظف
                   </Button>
                 )}
                 {role === "individual" && detailTask?.status === "assigned" && (
