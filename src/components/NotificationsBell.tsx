@@ -12,7 +12,7 @@ const dropdownRef = useRef<HTMLDivElement>(null);
 
 const loadNotifications = () => {
 if (!user) return;
-const saved = localStorage.getItem(app_notifs_${user.id});
+const saved = localStorage.getItem("app_notifs_" + user.id);
 if (saved) {
 setNotifications(JSON.parse(saved));
 }
@@ -40,29 +40,28 @@ const unreadCount = notifications.filter(n => !n.is_read).length;
 const markAllAsRead = () => {
 const updated = notifications.map(n => ({ ...n, is_read: true }));
 setNotifications(updated);
-if (user) localStorage.setItem(app_notifs_${user.id}, JSON.stringify(updated));
+if (user) localStorage.setItem("app_notifs_" + user.id, JSON.stringify(updated));
 };
 
 const clearAll = () => {
 setNotifications([]);
-if (user) localStorage.removeItem(app_notifs_${user.id});
+if (user) localStorage.removeItem("app_notifs_" + user.id);
 };
 
 const markAsRead = (id: string) => {
 const updated = notifications.map(n => n.id === id ? { ...n, is_read: true } : n);
 setNotifications(updated);
-if (user) localStorage.setItem(app_notifs_${user.id}, JSON.stringify(updated));
+if (user) localStorage.setItem("app_notifs_" + user.id, JSON.stringify(updated));
 };
 
-// دالة التعامل مع الضغط على الإشعار للتوجه للمكان الصحيح
 const handleNotificationClick = (notif: any) => {
 markAsRead(notif.id);
 setIsOpen(false);
 
-if (notif.data?.taskId) {
-  navigate(`/tasks?taskId=${notif.data.taskId}`);
-} else if (notif.data?.requestId) {
-  navigate(`/hr?leaveId=${notif.data.requestId}`);
+if (notif.data && notif.data.taskId) {
+  navigate("/tasks?taskId=" + notif.data.taskId);
+} else if (notif.data && notif.data.requestId) {
+  navigate("/hr?leaveId=" + notif.data.requestId);
 } else {
   navigate("/tasks");
 }
