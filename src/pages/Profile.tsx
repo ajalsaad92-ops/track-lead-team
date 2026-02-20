@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { User2, Phone, Shield, Clock } from "lucide-react";
+import { User2, Phone, Shield, Clock, BellRing } from "lucide-react";
 import { toast } from "sonner";
 
 export default function Profile() {
@@ -15,6 +15,7 @@ export default function Profile() {
   const [dutySystem, setDutySystem] = useState("");
   const [unit, setUnit] = useState("");
   const [saving, setSaving] = useState(false);
+  const [notificationStatus, setNotificationStatus] = useState<string>("default");
 
   const roleLabels: Record<string, string> = {
     admin: "مدير القسم",
@@ -32,6 +33,11 @@ export default function Profile() {
   };
 
   useEffect(() => {
+    // التحقق من حالة الإشعارات الحالية في المتصفح
+    if ("Notification" in window) {
+      setNotificationStatus(Notification.permission);
+    }
+
     if (!user) return;
     supabase
       .from("profiles")
@@ -59,6 +65,38 @@ export default function Profile() {
       toast.error("حدث خطأ أثناء الحفظ");
     } else {
       toast.success("تم حفظ البيانات بنجاح");
+    }
+  };
+
+  // دالة طلب وتفعيل الإشعارات الإجبارية
+  const enableNotifications = async () => {
+    if (!("Notification" in window)) {
+      toast.error("متصفحك الحالي لا يدعم الإشعارات");
+      return;
+    }
+
+    try {
+      const permission = await Notification.requestPermission();
+      setNotificationStatus(permission);
+
+      if (permission === "granted") {
+        toast.success("تم تفعيل الإشعارات بنجاح!");
+        
+        // إرسال إشعار تجريبي فوري للتأكد
+        if ("serviceWorker" in navigator) {
+          navigator.serviceWorker.ready.then((registration) => {
+            registration.showNotification("مرحباً بك يا بطل! 🚀", {
+              body: "الإشعارات تعمل الآن في جهازك بنجاح.",
+              icon: "/favicon.ico",
+              dir: "rtl"
+            });
+          });
+        }
+      } else {
+        toast.error("تم رفض الصلاحية، يرجى السماح بها من إعدادات المتصفح.");
+      }
+    } catch (error) {
+      console.error("Error requesting notification permission:", error);
     }
   };
 
@@ -108,7 +146,7 @@ export default function Profile() {
               <Label htmlFor="phone" className="text-xs text-muted-foreground flex items-center gap-1">
                 <Phone className="w-3 h-3" /> رقم الجوال
               </Label>
-              <div className="flex gap-2 mt-1">
+              <div className="flex gap-2 mt-1 mb-6">
                 <Input
                   id="phone"
                   value={phone}
@@ -122,6 +160,27 @@ export default function Profile() {
                 </Button>
               </div>
             </div>
+
+            {/* قسم الإشعارات الجديد */}
+            <div className="border-t pt-4 bg-slate-50 p-4 rounded-lg mt-4">
+              <h3 className="text-sm font-bold flex items-center gap-2 mb-2 text-slate-800">
+                <BellRing className="w-4 h-4 text-amber-500" />
+                إعدادات الإشعارات
+              </h3>
+              <p className="text-xs text-slate-500 mb-3">
+                فعّل الإشعارات لكي يصلك تنبيه بالمهام الجديدة حتى لو كان النظام مغلقاً.
+              </p>
+              <div className="flex items-center gap-4">
+                <Button 
+                  onClick={enableNotifications} 
+                  variant={notificationStatus === "granted" ? "outline" : "default"}
+                  className={notificationStatus === "granted" ? "border-green-500 text-green-700" : ""}
+                >
+                  {notificationStatus === "granted" ? "الإشعارات مفعلة ✅" : "تفعيل الإشعارات 🔔"}
+                </Button>
+              </div>
+            </div>
+
           </CardContent>
         </Card>
       </div>
