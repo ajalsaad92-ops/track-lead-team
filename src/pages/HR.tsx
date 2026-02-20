@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useSearchParams } from "react-router-dom";
@@ -104,7 +104,6 @@ export default function HRPage() {
     try {
       setLoading(true);
       
-      // جلب البيانات بطريقة منفصلة وآمنة لتجنب أخطاء دمج قواعد البيانات
       const { data: profiles } = await supabase.from("profiles").select("user_id, full_name, duty_system, unit");
       const { data: roles } = await supabase.from("user_roles").select("user_id, role");
       
@@ -126,7 +125,6 @@ export default function HRPage() {
       const { data: att } = await supabase.from("attendance").select("*").eq("date", todayStr);
       setAttendance(att ?? []);
 
-      // تعيين الفرد الافتراضي في الفورم
       if (user && roleMap[user.id] === "individual") {
         setForm(prev => ({ ...prev, target_user_id: user.id }));
       }
@@ -137,25 +135,24 @@ export default function HRPage() {
     }
   };
 
-  // 🔴 الحساس الذكي الآمن (يمنع الشاشة البيضاء ويعمل بفعالية تامة)
+  const openedFromUrl = useRef(false);
   useEffect(() => {
+    if (openedFromUrl.current || leaveRequests.length === 0 || members.length === 0) return;
+    
     const leaveId = searchParams.get("leaveId");
-    if (!leaveId || leaveRequests.length === 0 || members.length === 0) return;
-
-    const reqToOpen = leaveRequests.find(r => String(r.id) === leaveId);
-    if (reqToOpen) {
-      fetchApplicantInfo(reqToOpen);
+    if (leaveId) {
+      openedFromUrl.current = true;
+      const reqToOpen = leaveRequests.find(r => String(r.id) === leaveId);
+      if (reqToOpen) {
+        setTimeout(() => {
+          fetchApplicantInfo(reqToOpen);
+          setSearchParams({}, { replace: true });
+        }, 100);
+      }
     }
-    
-    // مسح الرقم من الرابط بطريقة آمنة لتجنب اللوب
-    const newParams = new URLSearchParams(searchParams);
-    newParams.delete("leaveId");
-    setSearchParams(newParams, { replace: true });
-    
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams, leaveRequests, members]); 
+  }, [leaveRequests, members]); 
 
-  // تحديث الأرصدة للموظف المختار بالنموذج
   useEffect(() => {
     if (form.target_user_id && leaveRequests.length > 0) {
       const today = new Date();
@@ -330,6 +327,42 @@ export default function HRPage() {
     else { toast({ title: "تم التراجع عن القرار" }); setInfoDialogOpen(false); fetchData(); }
   };
 
+  // --- الدوال التي سقطت سهواً وتم استرجاعها ---
+  const handleAttendance = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const { error } = await supabase.from("attendance").upsert({
+      user_id: attForm.user_id, date: new Date().toISOString().slice(0, 10),
+      status: attForm.status as any, notes: attForm.notes,
+    }, { onConflict: "user_id,date" });
+    if (error) toast({ title: "خطأ", description: error.message, variant: "destructive" });
+    else { toast({ title: "تم تسجيل الحضور" }); setAttendanceDialog(false); fetchData(); }
+  };
+
+  const isDecisionMade = (lr: any) => {
+    if (role === "unit_head") return lr.unit_head_decision && lr.unit_head_decision !== "pending";
+    if (role === "admin") return lr.admin_decision && lr.admin_decision !== "pending";
+    return false;
+  };
+
+  const fetchActivityLogs = async () => {
+    setActivityLoading(true);
+    const { data } = await supabase.from("audit_log").select("*").order("created_at", { ascending: false }).limit(100);
+    setActivityLogs(data ?? []);
+    setActivityLoading(false);
+  };
+
+  const actionLabels: Record<string, string> = {
+    update_curriculum: "تعديل منهاج", create_user: "إنشاء مستخدم",
+    disable_user: "تعطيل حساب", enable_user: "تفعيل حساب",
+    reset_password: "إعادة تعيين كلمة مرور", update_profile: "تعديل بيانات",
+  };
+
+  const getUserName = (userId: string | null) => {
+    if (!userId) return "—";
+    return members.find(p => p.user_id === userId)?.full_name ?? "مستخدم";
+  };
+  // ----------------------------------------------
+
   const requestTargetUsers = members.filter(m => {
     if (role === 'admin') return m.role !== 'admin';
     if (role === 'unit_head') {
@@ -338,6 +371,8 @@ export default function HRPage() {
     }
     return m.user_id === user?.id;
   });
+
+  const filteredUsers = usersFilterUnit === "all" ? allUsers : allUsers.filter(u => u.unit === usersFilterUnit);
 
   const getRequestLabel = (lr: any) => {
     return requestTypeLabels[lr.leave_type] ?? lr.leave_type;
@@ -610,17 +645,73 @@ export default function HRPage() {
 
           {(role === "admin" || role === "unit_head") && (
             <TabsContent value="users">
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-4">
-                {allUsers.map((u: any) => (
-                  <Card key={u.user_id} className="shadow-card border-0 cursor-pointer" onClick={() => { setDossierUser({ userId: u.user_id, fullName: u.full_name }); setDossierOpen(true); }}>
-                    <CardContent className="p-4 flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full gradient-primary flex items-center justify-center text-white font-bold">{u.full_name?.charAt(0)}</div>
-                      <div><p className="font-medium text-sm">{u.full_name}</p></div>
-                    </CardContent>
-                  </Card>
-                ))}
+              <div className="space-y-3 mt-4">
+                <div className="flex gap-2 flex-wrap">
+                  {["all", "preparation", "curriculum"].map((u) => (
+                    <button
+                      key={u}
+                      onClick={() => setUsersFilterUnit(u)}
+                      className={`text-sm px-3 py-1.5 rounded-full border transition-all ${usersFilterUnit === u ? "bg-primary text-primary-foreground border-primary" : "bg-muted text-muted-foreground border-border hover:border-primary/40"}`}
+                    >
+                      {u === "all" ? "الكل" : unitLabels[u]}
+                    </button>
+                  ))}
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {filteredUsers.map((u: any) => (
+                    <Card key={u.user_id} className="shadow-card border-0 cursor-pointer hover:shadow-elevated transition-all"
+                      onClick={() => { setDossierUser({ userId: u.user_id, fullName: u.full_name }); setDossierOpen(true); }}>
+                      <CardContent className="p-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full gradient-primary flex items-center justify-center text-white font-bold text-sm shrink-0">
+                            {u.full_name?.charAt(0)}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="font-medium text-sm truncate">{u.full_name}</p>
+                            <p className="text-xs text-muted-foreground">{unitLabels[u.unit] ?? "—"}</p>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
               </div>
               <UserDossier open={dossierOpen} onOpenChange={setDossierOpen} userId={dossierUser.userId} fullName={dossierUser.fullName} />
+            </TabsContent>
+          )}
+
+          {(role === "admin" || role === "unit_head") && (
+            <TabsContent value="activity">
+              {activityLoading ? (
+                <p className="text-center py-8 text-muted-foreground">جاري التحميل...</p>
+              ) : (
+                <Card className="shadow-card border-0">
+                  <CardContent className="p-0">
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="text-right">الإجراء</TableHead>
+                            <TableHead className="text-right">المستخدم</TableHead>
+                            <TableHead className="text-right">الوقت</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {activityLogs.length === 0 ? (
+                            <TableRow><TableCell colSpan={3} className="text-center py-8 text-muted-foreground">لا سجلات</TableCell></TableRow>
+                          ) : activityLogs.map((log) => (
+                            <TableRow key={log.id}>
+                              <TableCell className="font-medium text-sm">{actionLabels[log.action] ?? log.action}</TableCell>
+                              <TableCell className="text-sm">{getUserName(log.user_id)}</TableCell>
+                              <TableCell className="text-xs text-muted-foreground">{new Date(log.created_at).toLocaleString("ar-SA")}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
             </TabsContent>
           )}
         </Tabs>
