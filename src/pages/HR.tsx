@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useSearchParams } from "react-router-dom";
@@ -71,14 +71,13 @@ export default function HRPage() {
   const [loading, setLoading] = useState(true);
   const [members, setMembers] = useState<any[]>([]);
   
-  // نموذج موحد للطلبات يشمل نيابة التقديم والتفاصيل الدقيقة
   const [form, setForm] = useState({ 
     target_user_id: "", 
     start_date: "", 
     end_date: "", 
     hours: "", 
-    time_off_period: "morning", // morning, end
-    exit_time: "", // time string
+    time_off_period: "morning",
+    exit_time: "", 
     reason: "" 
   });
   
@@ -97,93 +96,99 @@ export default function HRPage() {
   const [activityLogs, setActivityLogs] = useState<any[]>([]);
   const [activityLoading, setActivityLoading] = useState(false);
 
-  // أرصدة الشخص المختار حالياً في نموذج التقديم
   const [targetBalances, setTargetBalances] = useState({ leavesLeft: MONTHLY_LEAVE_DAYS, timeOffLeft: MONTHLY_TIME_OFF_HOURS });
   const [historyFilter, setHistoryFilter] = useState<"same_type" | "all">("same_type");
 
   useEffect(() => { fetchData(); }, [role]);
 
-  // تحديث أرصدة الموظف المختار فوراً بمجرد تغييره في القائمة المنسدلة
-  useEffect(() => {
-    if (form.target_user_id && leaveRequests.length > 0) {
-      calculateBalancesForUser(form.target_user_id, leaveRequests);
-    }
-  }, [form.target_user_id, leaveRequests]);
-
   const fetchData = async () => {
+    setLoading(true);
+    
+    // الطريقة المضمونة لجلب المستخدمين (منفصلة لمنع أخطاء الـ DB)
+    const { data: profiles } = await supabase.from("profiles").select("user_id, full_name, duty_system, unit");
+    const { data: roles } = await supabase.from("user_roles").select("user_id, role");
+    
+    const roleMap: Record<string, string> = {};
+    (roles ?? []).forEach((r: any) => { roleMap[r.user_id] = r.role; });
+    
+    const mergedProfiles = (profiles ?? []).map((p: any) => ({
+      ...p,
+      role: roleMap[p.user_id] ?? "individual",
+    }));
+    
+    setMembers(mergedProfiles);
+    setAllUsers(mergedProfiles);
+
+    // جلب الطلبات
     const { data: lr } = await supabase.from("leave_requests").select("*").order("created_at", { ascending: false });
-    const requests = lr ?? [];
-    setLeaveRequests(requests);
+    setLeaveRequests(lr ?? []);
 
     const todayStr = new Date().toISOString().slice(0, 10);
     const { data: att } = await supabase.from("attendance").select("*").eq("date", todayStr);
     setAttendance(att ?? []);
 
-    const { data: profiles } = await supabase.from("profiles").select("user_id, full_name, duty_system, unit, role:user_roles(role)");
-    const formattedProfiles = (profiles ?? []).map(p => ({
-      ...p,
-      role: Array.isArray(p.role) ? p.role[0]?.role : (p.role as any)?.role || "individual"
-    }));
-    
-    setMembers(formattedProfiles);
-    setAllUsers(formattedProfiles);
-    
-    if (user && role === "individual") {
+    if (user && roleMap[user.id] === "individual") {
       setForm(prev => ({ ...prev, target_user_id: user.id }));
     }
     
     setLoading(false);
   };
 
-  // دالة مستقلة لحساب رصيد أي موظف
-  const calculateBalancesForUser = (userId: string, allRequests: any[]) => {
-    const today = new Date();
-    const currentMonth = today.getMonth();
-    const currentYear = today.getFullYear();
-    let usedLeaveDays = 0;
-    let usedTimeOffHours = 0;
-
-    allRequests.forEach((req: any) => {
-      // نحسب الطلبات التي لم يتم رفضها نهائياً
-      if (req.user_id === userId && req.admin_decision !== "admin_rejected") {
-        const reqDate = new Date(req.start_date);
-        if (reqDate.getMonth() === currentMonth && reqDate.getFullYear() === currentYear) {
-          if (req.leave_type === "leave" && req.end_date) {
-            const start = new Date(req.start_date);
-            const end = new Date(req.end_date);
-            const diffDays = Math.ceil(Math.abs(end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
-            usedLeaveDays += diffDays;
-          } 
-          else if (req.leave_type === "time_off" && req.hours) {
-            usedTimeOffHours += parseFloat(req.hours);
-          }
-        }
-      }
-    });
-
-    setTargetBalances({
-      leavesLeft: Math.max(0, MONTHLY_LEAVE_DAYS - usedLeaveDays),
-      timeOffLeft: Math.max(0, MONTHLY_TIME_OFF_HOURS - usedTimeOffHours),
-    });
-  };
-
-  // الحساس الذكي لفتح المراجعة تلقائياً
+  // 🔴 الحساس الذكي (تم برمجته بطريقة تمنع اللوب والشاشة البيضاء تماماً)
+  const openedFromUrl = useRef(false);
   useEffect(() => {
+    if (openedFromUrl.current || leaveRequests.length === 0 || members.length === 0) return;
+    
     const leaveId = searchParams.get("leaveId");
-    if (leaveId && leaveRequests.length > 0) {
+    if (leaveId) {
+      openedFromUrl.current = true;
       const reqToOpen = leaveRequests.find(r => String(r.id) === leaveId);
-      if (reqToOpen && (role === "admin" || role === "unit_head" || reqToOpen.user_id === user?.id)) {
-        fetchApplicantInfo(reqToOpen);
-        searchParams.delete("leaveId");
-        setSearchParams(searchParams, { replace: true });
+      if (reqToOpen) {
+        // نستخدم setTimeout لضمان اكتمال تحميل الصفحة قبل فتح المودال
+        setTimeout(() => {
+          fetchApplicantInfo(reqToOpen);
+          setSearchParams({}, { replace: true });
+        }, 100);
       }
     }
-  }, [searchParams, leaveRequests, role]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leaveRequests, members]); // يعتمد فقط على اكتمال جلب البيانات
+
+  // تحديث الأرصدة للموظف المختار بالنموذج
+  useEffect(() => {
+    if (form.target_user_id && leaveRequests.length > 0) {
+      const today = new Date();
+      const currentMonth = today.getMonth();
+      const currentYear = today.getFullYear();
+      let usedLeaveDays = 0;
+      let usedTimeOffHours = 0;
+
+      leaveRequests.forEach((req: any) => {
+        if (req.user_id === form.target_user_id && req.admin_decision !== "admin_rejected") {
+          const reqDate = new Date(req.start_date);
+          if (reqDate.getMonth() === currentMonth && reqDate.getFullYear() === currentYear) {
+            if (req.leave_type === "leave" && req.end_date) {
+              const start = new Date(req.start_date);
+              const end = new Date(req.end_date);
+              const diffDays = Math.ceil(Math.abs(end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+              usedLeaveDays += diffDays;
+            } 
+            else if (req.leave_type === "time_off" && req.hours) {
+              usedTimeOffHours += parseFloat(req.hours);
+            }
+          }
+        }
+      });
+
+      setTargetBalances({
+        leavesLeft: Math.max(0, MONTHLY_LEAVE_DAYS - usedLeaveDays),
+        timeOffLeft: Math.max(0, MONTHLY_TIME_OFF_HOURS - usedTimeOffHours),
+      });
+    }
+  }, [form.target_user_id, leaveRequests]);
 
   const openRequestDialog = (type: string) => {
     setRequestType(type);
-    
-    // تحديد الموظف الافتراضي بناء على الصلاحية
     let initialTarget = "";
     if (role === "individual") initialTarget = user!.id;
     
@@ -207,7 +212,6 @@ export default function HRPage() {
       return;
     }
 
-    // التحقق من الأرصدة
     if (requestType === "leave") {
       const start = new Date(form.start_date);
       const end = new Date(form.end_date);
@@ -227,7 +231,6 @@ export default function HRPage() {
       }
     }
 
-    // تجهيز النص الشامل (السبب + التفاصيل الخاصة)
     let finalReason = form.reason;
     if (requestType === "time_off") {
       finalReason = `[الفترة: ${form.time_off_period === 'morning' ? 'بداية الدوام' : 'نهاية الدوام'}] ` + form.reason;
@@ -239,7 +242,7 @@ export default function HRPage() {
 
     const body: any = {
       user_id: form.target_user_id,
-      leave_type: requestType, // حفظ النوع الأصلي بدقة
+      leave_type: requestType,
       start_date: form.start_date,
       reason: finalReason,
     };
@@ -256,7 +259,7 @@ export default function HRPage() {
     }
   };
 
-  const fetchApplicantInfo = async (lr: any) => {
+  const fetchApplicantInfo = (lr: any) => {
     setSelectedRequest(lr);
     setHistoryFilter("same_type"); 
 
@@ -288,7 +291,7 @@ export default function HRPage() {
 
     const member = members.find(m => m.user_id === lr.user_id);
     setApplicantInfo({ 
-      name: member?.full_name ?? "مستخدم", 
+      name: member?.full_name ?? "مستخدم غير معروف", 
       leavesLeft: Math.max(0, MONTHLY_LEAVE_DAYS - usedLeaveDays),
       timeOffLeft: Math.max(0, MONTHLY_TIME_OFF_HOURS - usedTimeOffHours),
       monthRequests 
@@ -300,10 +303,10 @@ export default function HRPage() {
     const updates: any = {};
     if (role === "unit_head") {
       updates.unit_head_decision = decision; 
-      updates.status = decision; // قرار مسؤول الشعبة يغير الحالة الأولية
+      updates.status = decision;
     } else if (role === "admin") {
       updates.admin_decision = decision; 
-      updates.status = decision; // قرار المدير يكتب فوق الجميع وهو النهائي
+      updates.status = decision;
     }
     
     const { error } = await supabase.from("leave_requests").update(updates).eq("id", id);
@@ -317,7 +320,6 @@ export default function HRPage() {
       updates.unit_head_decision = null;
     } else if (role === "admin") {
       updates.admin_decision = null;
-      // إذا تراجع المدير، نعيد الحالة لقرار مسؤول الشعبة إن وُجد، وإلا فقيد المراجعة
       if (selectedRequest.unit_head_decision) {
         updates.status = selectedRequest.unit_head_decision;
       }
@@ -327,22 +329,47 @@ export default function HRPage() {
     else { toast({ title: "تم التراجع عن القرار" }); setInfoDialogOpen(false); fetchData(); }
   };
 
-  // فلترة المستخدمين لنموذج التقديم حسب الصلاحية
+  // 🔴 هندسة الصلاحيات الدقيقة لقائمة التقديم
   const requestTargetUsers = members.filter(m => {
-    if (role === 'admin') return m.role !== 'admin'; // المدير يطلب للكل عدا نفسه
-    if (role === 'unit_head') return m.user_id === user?.id || m.unit === members.find(x => x.user_id === user?.id)?.unit;
-    return m.user_id === user?.id;
+    if (role === 'admin') return m.role !== 'admin'; // المدير لا يطلب لنفسه، يطلب للكل
+    if (role === 'unit_head') {
+      const myUnit = members.find(x => x.user_id === user?.id)?.unit;
+      return m.user_id === user?.id || m.unit === myUnit; // مسؤول الشعبة لنفسه ولأفراده
+    }
+    return m.user_id === user?.id; // الفرد لنفسه فقط
   });
 
   const getRequestLabel = (lr: any) => {
     return requestTypeLabels[lr.leave_type] ?? lr.leave_type;
   };
 
+  // حماية البيانات: الأفراد يرون طلباتهم فقط
   const filteredRequests = leaveRequests.filter(lr => {
+    if (role === "individual" && lr.user_id !== user?.id) return false;
+    if (role === "unit_head") {
+      const isMine = lr.user_id === user?.id;
+      const myUnit = members.find(m => m.user_id === user?.id)?.unit;
+      const reqUnit = members.find(m => m.user_id === lr.user_id)?.unit;
+      if (!isMine && myUnit !== reqUnit) return false;
+    }
+
     if (!search) return true;
     const label = getRequestLabel(lr);
     return label.includes(search) || lr.reason?.includes(search) || lr.start_date?.includes(search);
   });
+
+  const fetchActivityLogs = async () => {
+    setActivityLoading(true);
+    const { data } = await supabase.from("audit_log").select("*").order("created_at", { ascending: false }).limit(100);
+    setActivityLogs(data ?? []);
+    setActivityLoading(false);
+  };
+
+  const actionLabels: Record<string, string> = {
+    update_curriculum: "تعديل منهاج", create_user: "إنشاء مستخدم",
+    disable_user: "تعطيل حساب", enable_user: "تفعيل حساب",
+    reset_password: "إعادة تعيين كلمة مرور", update_profile: "تعديل بيانات",
+  };
 
   const renderRequestForm = () => {
     const isOutOfLeaves = requestType === "leave" && targetBalances.leavesLeft <= 0;
@@ -388,7 +415,7 @@ export default function HRPage() {
         )}
 
         {(!form.target_user_id && role !== "individual") ? (
-          <p className="text-center text-sm text-muted-foreground py-4">يرجى اختيار الموظف أولاً لعرض الأرصدة وإكمال الطلب.</p>
+          <p className="text-center text-sm text-muted-foreground py-4">يرجى اختيار الموظف لعرض أرصدته وإكمال الطلب.</p>
         ) : (isOutOfLeaves || isOutOfTimeOff) ? (
           <div className="flex flex-col items-center justify-center py-6 text-destructive text-center space-y-2 bg-destructive/5 rounded-lg border border-destructive/20 mt-4">
             <AlertCircle className="w-8 h-8 opacity-80" />
@@ -579,7 +606,6 @@ export default function HRPage() {
           </TabsContent>
 
           <TabsContent value="attendance">
-            {/* محتوى الحضور القديم كما هو للحفاظ عليه */}
             <Card className="shadow-card border-0">
               <CardContent className="p-0">
                 <div className="overflow-x-auto">
@@ -616,7 +642,7 @@ export default function HRPage() {
         {/* Dialog المراجعة الذكي */}
         <Dialog open={infoDialogOpen} onOpenChange={setInfoDialogOpen}>
           <DialogContent className="max-w-md mx-4 sm:mx-auto max-h-[85vh] overflow-y-auto">
-            <DialogHeader><DialogTitle className="font-cairo">تفاصيل الطلب</DialogTitle></DialogHeader>
+            <DialogHeader><DialogTitle className="font-cairo">{role === "individual" ? "تفاصيل الطلب" : "مراجعة الطلب"}</DialogTitle></DialogHeader>
             {applicantInfo && selectedRequest && (
               <div className="space-y-4">
                 <div className="p-3 bg-muted/50 border border-border rounded-lg shadow-sm">
@@ -628,7 +654,7 @@ export default function HRPage() {
                     <p><span className="text-muted-foreground">نوع الطلب:</span> {getRequestLabel(selectedRequest)}</p>
                     <p><span className="text-muted-foreground">التاريخ:</span> {selectedRequest.start_date}</p>
                   </div>
-                  {selectedRequest.reason && <p className="text-xs mt-2 bg-white p-2 rounded border line-clamp-4 whitespace-pre-wrap leading-relaxed">{selectedRequest.reason}</p>}
+                  {selectedRequest.reason && <p className="text-xs mt-2 bg-white p-2 rounded border whitespace-pre-wrap leading-relaxed">{selectedRequest.reason}</p>}
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
@@ -644,7 +670,7 @@ export default function HRPage() {
 
                 <div className="border border-border rounded-lg overflow-hidden">
                   <div className="flex items-center justify-between p-2 bg-muted/50 border-b">
-                    <p className="text-xs font-bold text-slate-700">سجل طلبات الشهر</p>
+                    <p className="text-xs font-bold text-slate-700">سجل طلبات الموظف لهذا الشهر</p>
                     <div className="flex gap-1 bg-white p-0.5 rounded shadow-sm border">
                       <button onClick={() => setHistoryFilter("same_type")} className={`text-[10px] px-2 py-1 rounded transition-colors ${historyFilter === "same_type" ? "bg-primary text-white font-bold" : "text-muted-foreground hover:bg-slate-50"}`}>نفس النوع</button>
                       <button onClick={() => setHistoryFilter("all")} className={`text-[10px] px-2 py-1 rounded transition-colors ${historyFilter === "all" ? "bg-primary text-white font-bold" : "text-muted-foreground hover:bg-slate-50"}`}>الكل</button>
@@ -664,17 +690,23 @@ export default function HRPage() {
                   </div>
                 </div>
 
-                {(role === "admin" || (role === "unit_head" && selectedRequest.status === "pending")) && (
-                  <div className="flex gap-2 pt-2 border-t">
-                    <Button className="flex-1 gap-1 bg-success hover:bg-success/90 text-white" onClick={() => handleApproval(selectedRequest.id, role === "admin" ? "admin_approved" : "unit_head_approved")}>
-                      <CheckCircle className="w-4 h-4" /> موافقة
-                    </Button>
-                    <Button variant="outline" className="flex-1 gap-1 text-destructive border-destructive/30 hover:bg-destructive/5" onClick={() => handleApproval(selectedRequest.id, role === "admin" ? "admin_rejected" : "unit_head_rejected")}>
-                      <XCircle className="w-4 h-4" /> رفض
-                    </Button>
+                {role !== "individual" && (
+                  <div className="flex gap-2 pt-2 border-t mt-4">
+                    {(selectedRequest.status === "pending" || (role === "admin" && selectedRequest.status !== "admin_approved")) && (
+                      <Button className="flex-1 gap-1 bg-success hover:bg-success/90 text-white" onClick={() => handleApproval(selectedRequest.id, role === "admin" ? "admin_approved" : "unit_head_approved")}>
+                        <CheckCircle className="w-4 h-4" /> موافقة
+                      </Button>
+                    )}
+                    
+                    {(selectedRequest.status === "pending" || (role === "admin" && selectedRequest.status !== "admin_rejected")) && (
+                      <Button variant="outline" className="flex-1 gap-1 text-destructive border-destructive/30 hover:bg-destructive/5" onClick={() => handleApproval(selectedRequest.id, role === "admin" ? "admin_rejected" : "unit_head_rejected")}>
+                        <XCircle className="w-4 h-4" /> رفض
+                      </Button>
+                    )}
+
                     {isDecisionMade(selectedRequest) && (
                       <Button variant="outline" className="gap-1 text-warning border-warning/30 hover:bg-warning/5" onClick={() => handleUndo(selectedRequest.id)}>
-                        <Undo2 className="w-4 h-4" />
+                        <Undo2 className="w-4 h-4" /> تراجع
                       </Button>
                     )}
                   </div>
