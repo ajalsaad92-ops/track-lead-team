@@ -1,6 +1,6 @@
 import { 
   User2, LogOut, LayoutDashboard, ClipboardList, 
-  BookOpen, Users, ChevronUp 
+  BookOpen, Users, ChevronUp, CalendarDays, BarChart3
 } from "lucide-react";
 import {
   Sidebar,
@@ -57,11 +57,25 @@ export function AppSidebar() {
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
-                <SidebarMenuButton onClick={() => navigate("/curriculum")} tooltip="المناهج والعروض">
-                  <BookOpen />
-                  <span>المناهج والعروض</span>
+                <SidebarMenuButton onClick={() => navigate("/curricula")} tooltip="المناهج والعروض">
+                   <BookOpen />
+                   <span>المناهج والعروض</span>
+                 </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton onClick={() => navigate("/hr")} tooltip="الموارد البشرية">
+                  <CalendarDays />
+                  <span>الموارد البشرية</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
+              {(role === "admin" || role === "unit_head") && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton onClick={() => navigate("/reports")} tooltip="التقارير">
+                    <BarChart3 />
+                    <span>التقارير</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
               {role === "admin" && (
                 <SidebarMenuItem>
                   <SidebarMenuButton onClick={() => navigate("/users")} tooltip="المستخدمين">
