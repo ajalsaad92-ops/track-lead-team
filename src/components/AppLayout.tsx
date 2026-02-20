@@ -1,6 +1,7 @@
+import NotificationsBell from "./NotificationsBell";
 import { ReactNode } from "react";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
-import { AppSidebar } from "@/components/ui/AppSidebar"; // لاحظ المسار الذي وضعته فيه
+import { AppSidebar } from "@/components/ui/AppSidebar"; 
 import { useAuth } from "@/hooks/useAuth";
 
 export default function AppLayout({ children }: { children: ReactNode }) {
@@ -21,10 +22,18 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         <AppSidebar /> 
 
         <main className="flex-1 flex flex-col min-h-0 bg-background overflow-hidden">
-          <header className="h-14 border-b flex items-center px-4 bg-card/50 backdrop-blur-sm shrink-0">
-            <SidebarTrigger />
-            <div className="mr-4 text-sm font-bold text-muted-foreground font-cairo">
-              نظام إدارة التدريب
+          {/* الشريط العلوي مع جرس الإشعارات */}
+          <header className="h-14 border-b flex items-center justify-between px-4 bg-card/50 backdrop-blur-sm shrink-0">
+            <div className="flex items-center">
+              <SidebarTrigger />
+              <div className="mr-4 text-sm font-bold text-muted-foreground font-cairo">
+                نظام إدارة التدريب
+              </div>
+            </div>
+
+            {/* جرس الإشعارات يظهر هنا في الجهة اليسرى */}
+            <div className="flex items-center">
+              <NotificationsBell />
             </div>
           </header>
 
