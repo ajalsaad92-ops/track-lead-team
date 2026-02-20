@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useSearchParams } from "react-router-dom";
@@ -53,7 +53,7 @@ const requestTypeIcons: Record<string, typeof CalendarDays> = {
   task_request: ClipboardList, personal: HeartHandshake,
 };
 
-// الثوابت الشهرية المحددة في طلبك
+// الثوابت الشهرية المحددة
 const MONTHLY_LEAVE_DAYS = 3;
 const MONTHLY_TIME_OFF_HOURS = 7;
 
@@ -82,7 +82,6 @@ export default function HRPage() {
   });
   
   const [attForm, setAttForm] = useState({ user_id: "", status: "present", notes: "" });
-  
   const [applicantInfo, setApplicantInfo] = useState<any>(null);
   const [infoDialogOpen, setInfoDialogOpen] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState<any>(null);
@@ -102,57 +101,59 @@ export default function HRPage() {
   useEffect(() => { fetchData(); }, [role]);
 
   const fetchData = async () => {
-    setLoading(true);
-    
-    // الطريقة المضمونة لجلب المستخدمين (منفصلة لمنع أخطاء الـ DB)
-    const { data: profiles } = await supabase.from("profiles").select("user_id, full_name, duty_system, unit");
-    const { data: roles } = await supabase.from("user_roles").select("user_id, role");
-    
-    const roleMap: Record<string, string> = {};
-    (roles ?? []).forEach((r: any) => { roleMap[r.user_id] = r.role; });
-    
-    const mergedProfiles = (profiles ?? []).map((p: any) => ({
-      ...p,
-      role: roleMap[p.user_id] ?? "individual",
-    }));
-    
-    setMembers(mergedProfiles);
-    setAllUsers(mergedProfiles);
+    try {
+      setLoading(true);
+      
+      // جلب البيانات بطريقة منفصلة وآمنة لتجنب أخطاء دمج قواعد البيانات
+      const { data: profiles } = await supabase.from("profiles").select("user_id, full_name, duty_system, unit");
+      const { data: roles } = await supabase.from("user_roles").select("user_id, role");
+      
+      const roleMap: Record<string, string> = {};
+      (roles ?? []).forEach((r: any) => { roleMap[r.user_id] = r.role; });
+      
+      const mergedProfiles = (profiles ?? []).map((p: any) => ({
+        ...p,
+        role: roleMap[p.user_id] ?? "individual",
+      }));
+      
+      setMembers(mergedProfiles);
+      setAllUsers(mergedProfiles);
 
-    // جلب الطلبات
-    const { data: lr } = await supabase.from("leave_requests").select("*").order("created_at", { ascending: false });
-    setLeaveRequests(lr ?? []);
+      const { data: lr } = await supabase.from("leave_requests").select("*").order("created_at", { ascending: false });
+      setLeaveRequests(lr ?? []);
 
-    const todayStr = new Date().toISOString().slice(0, 10);
-    const { data: att } = await supabase.from("attendance").select("*").eq("date", todayStr);
-    setAttendance(att ?? []);
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const { data: att } = await supabase.from("attendance").select("*").eq("date", todayStr);
+      setAttendance(att ?? []);
 
-    if (user && roleMap[user.id] === "individual") {
-      setForm(prev => ({ ...prev, target_user_id: user.id }));
+      // تعيين الفرد الافتراضي في الفورم
+      if (user && roleMap[user.id] === "individual") {
+        setForm(prev => ({ ...prev, target_user_id: user.id }));
+      }
+    } catch (error) {
+      console.error("Error fetching HR data:", error);
+    } finally {
+      setLoading(false);
     }
-    
-    setLoading(false);
   };
 
-  // 🔴 الحساس الذكي (تم برمجته بطريقة تمنع اللوب والشاشة البيضاء تماماً)
-  const openedFromUrl = useRef(false);
+  // 🔴 الحساس الذكي الآمن (يمنع الشاشة البيضاء ويعمل بفعالية تامة)
   useEffect(() => {
-    if (openedFromUrl.current || leaveRequests.length === 0 || members.length === 0) return;
-    
     const leaveId = searchParams.get("leaveId");
-    if (leaveId) {
-      openedFromUrl.current = true;
-      const reqToOpen = leaveRequests.find(r => String(r.id) === leaveId);
-      if (reqToOpen) {
-        // نستخدم setTimeout لضمان اكتمال تحميل الصفحة قبل فتح المودال
-        setTimeout(() => {
-          fetchApplicantInfo(reqToOpen);
-          setSearchParams({}, { replace: true });
-        }, 100);
-      }
+    if (!leaveId || leaveRequests.length === 0 || members.length === 0) return;
+
+    const reqToOpen = leaveRequests.find(r => String(r.id) === leaveId);
+    if (reqToOpen) {
+      fetchApplicantInfo(reqToOpen);
     }
+    
+    // مسح الرقم من الرابط بطريقة آمنة لتجنب اللوب
+    const newParams = new URLSearchParams(searchParams);
+    newParams.delete("leaveId");
+    setSearchParams(newParams, { replace: true });
+    
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [leaveRequests, members]); // يعتمد فقط على اكتمال جلب البيانات
+  }, [searchParams, leaveRequests, members]); 
 
   // تحديث الأرصدة للموظف المختار بالنموذج
   useEffect(() => {
@@ -329,21 +330,19 @@ export default function HRPage() {
     else { toast({ title: "تم التراجع عن القرار" }); setInfoDialogOpen(false); fetchData(); }
   };
 
-  // 🔴 هندسة الصلاحيات الدقيقة لقائمة التقديم
   const requestTargetUsers = members.filter(m => {
-    if (role === 'admin') return m.role !== 'admin'; // المدير لا يطلب لنفسه، يطلب للكل
+    if (role === 'admin') return m.role !== 'admin';
     if (role === 'unit_head') {
       const myUnit = members.find(x => x.user_id === user?.id)?.unit;
-      return m.user_id === user?.id || m.unit === myUnit; // مسؤول الشعبة لنفسه ولأفراده
+      return m.user_id === user?.id || m.unit === myUnit;
     }
-    return m.user_id === user?.id; // الفرد لنفسه فقط
+    return m.user_id === user?.id;
   });
 
   const getRequestLabel = (lr: any) => {
     return requestTypeLabels[lr.leave_type] ?? lr.leave_type;
   };
 
-  // حماية البيانات: الأفراد يرون طلباتهم فقط
   const filteredRequests = leaveRequests.filter(lr => {
     if (role === "individual" && lr.user_id !== user?.id) return false;
     if (role === "unit_head") {
@@ -357,19 +356,6 @@ export default function HRPage() {
     const label = getRequestLabel(lr);
     return label.includes(search) || lr.reason?.includes(search) || lr.start_date?.includes(search);
   });
-
-  const fetchActivityLogs = async () => {
-    setActivityLoading(true);
-    const { data } = await supabase.from("audit_log").select("*").order("created_at", { ascending: false }).limit(100);
-    setActivityLogs(data ?? []);
-    setActivityLoading(false);
-  };
-
-  const actionLabels: Record<string, string> = {
-    update_curriculum: "تعديل منهاج", create_user: "إنشاء مستخدم",
-    disable_user: "تعطيل حساب", enable_user: "تفعيل حساب",
-    reset_password: "إعادة تعيين كلمة مرور", update_profile: "تعديل بيانات",
-  };
 
   const renderRequestForm = () => {
     const isOutOfLeaves = requestType === "leave" && targetBalances.leavesLeft <= 0;
