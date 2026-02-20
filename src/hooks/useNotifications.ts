@@ -20,27 +20,46 @@ export function useNotifications() {
   }, []);
 
   const showNativeNotification = async (title: string, body: string, data: any = {}) => {
-    if (permissionRef.current === "granted" && "Notification" in window) {
-      try {
-        if ("serviceWorker" in navigator) {
-          const registration = await navigator.serviceWorker.ready;
-          await registration.showNotification(title, {
-            body,
-            icon: "/favicon.ico",
-            badge: "/favicon.ico",
-            dir: "rtl",
-            tag: `notif-${Date.now()}`,
-            vibrate: [200, 100, 200],
-            data: { ...data, url: "/" }
-          });
-        } else {
-          new Notification(title, { body, icon: "/favicon.ico", dir: "rtl" });
-        }
-      } catch (error) {
-        new Notification(title, { body, icon: "/favicon.ico", dir: "rtl" });
-      }
+// 1. أرشفة الإشعار في ذاكرة المتصفح (ليظهر في قائمة الجرس)
+if (user) {
+const saved = localStorage.getItem(app_notifs_${user.id});
+const currentNotifs = saved ? JSON.parse(saved) : [];
+const newNotif = {
+id: Date.now().toString(),
+title,
+body,
+data,
+is_read: false,
+created_at: new Date().toISOString()
+};
+// نحفظ آخر 50 إشعار فقط لكي لا يمتلئ المتصفح
+localStorage.setItem(app_notifs_${user.id}, JSON.stringify([newNotif, ...currentNotifs].slice(0, 50)));
+// إرسال إشارة لتحديث رقم الجرس فوراً
+window.dispatchEvent(new Event("new_notification"));
+}
+
+// 2. إظهار الإشعار المرئي (Native)
+if (permissionRef.current === "granted" && "Notification" in window) {
+  try {
+    if ("serviceWorker" in navigator) {
+      const registration = await navigator.serviceWorker.ready;
+      await registration.showNotification(title, {
+        body,
+        icon: "/favicon.ico",
+        badge: "/favicon.ico",
+        dir: "rtl",
+        tag: `notif-${Date.now()}`,
+        vibrate: [200, 100, 200],
+        data: { ...data, url: "/" }
+      });
+    } else {
+      new Notification(title, { body, icon: "/favicon.ico", dir: "rtl" });
     }
-  };
+  } catch (error) {
+    new Notification(title, { body, icon: "/favicon.ico", dir: "rtl" });
+  }
+}
+};
 
   useEffect(() => {
     if (!user) return;
