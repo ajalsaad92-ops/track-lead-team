@@ -11,7 +11,9 @@ import HR from "./pages/HR";
 import Curricula from "./pages/Curricula";
 import Tasks from "./pages/Tasks";
 import Reports from "./pages/Reports";
+import Profile from "./pages/Profile";
 import NotFound from "./pages/NotFound";
+import { useNotifications } from "@/hooks/useNotifications";
 
 const queryClient = new QueryClient();
 
@@ -26,6 +28,7 @@ function ProtectedRoute({ children, roles }: { children: React.ReactNode; roles?
   }
   if (!user) return <Navigate to="/login" replace />;
   if (roles && role && !roles.includes(role)) return <Navigate to="/dashboard" replace />;
+  useNotifications();
   return <>{children}</>;
 }
 
@@ -58,6 +61,7 @@ const App = () => (
             <Route path="/curricula" element={<ProtectedRoute><Curricula /></ProtectedRoute>} />
             <Route path="/tasks" element={<ProtectedRoute><Tasks /></ProtectedRoute>} />
             <Route path="/reports" element={<ProtectedRoute roles={["admin", "unit_head"]}><Reports /></ProtectedRoute>} />
+            <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </AuthProvider>
