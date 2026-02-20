@@ -7,7 +7,7 @@ export function useNotifications() {
   const { user, role } = useAuth();
   const permissionRef = useRef<NotificationPermission>("default");
   
-  // حفظ وقت آخر فحص لمعرفة المهام الجديدة فقط
+  // حفظ وقت آخر فحص لمعرفة التغييرات الجديدة فقط
   const lastCheckRef = useRef<string>(new Date().toISOString());
 
   useEffect(() => {
@@ -47,74 +47,107 @@ export function useNotifications() {
   useEffect(() => {
     if (!user) return;
 
-    // دالة الفحص الدوري للمهام والتعليقات الجديدة
+    // دالة الفحص الدوري الشاملة (للمهام، الإجراءات، الإجازات، والتعليقات)
     const checkForUpdates = async () => {
       const now = new Date().toISOString();
       const lastCheck = lastCheckRef.current;
 
       try {
-        // 1. البحث عن مهام جديدة تم تكليفي بها منذ آخر فحص
-        const { data: newTasks } = await supabase
+        // ==========================================
+        // 1. مراقبة المهام (المهام الجديدة + تحديثات الإجراءات)
+        // ==========================================
+        const { data: tasks } = await supabase
           .from("tasks")
-          .select("id, title")
-          .eq("assigned_to", user.id)
-          .gt("created_at", lastCheck);
+          .select("id, title, status, created_at, updated_at, assigned_to, assigned_by")
+          .gt("updated_at", lastCheck);
 
-        if (newTasks && newTasks.length > 0) {
-          newTasks.forEach(task => {
-            toast.info("📋 مهمة جديدة", { description: task.title });
-            showNativeNotification("مهمة جديدة وردت إليك", task.title, { taskId: task.id, type: 'new_task' });
-          });
-        }
-
-        // 2. البحث عن تعليقات جديدة على المهام التي أشارك فيها
-        const { data: newComments } = await supabase
-          .from("task_comments")
-          .select("id, task_id, message, user_id, tasks(title, assigned_to, assigned_by)")
-          .neq("user_id", user.id)
-          .gt("created_at", lastCheck);
-
-        if (newComments && newComments.length > 0) {
-          newComments.forEach(comment => {
-            // @ts-ignore - Supabase join typing
-            const task = comment.tasks;
-            if (task && (task.assigned_to === user.id || task.assigned_by === user.id)) {
-              toast.info("💬 تعليق جديد", { description: `على مهمة: ${task.title}` });
-              showNativeNotification("تعليق جديد على مهمة", task.title, { taskId: comment.task_id, type: 'new_comment' });
+        if (tasks && tasks.length > 0) {
+          tasks.forEach(task => {
+            const isNew = task.created_at > lastCheck;
+            
+            // الحالة أ: تم تكليفي بمهمة جديدة
+            if (isNew && task.assigned_to === user.id) {
+              toast.info("📋 مهمة جديدة", { description: task.title });
+              showNativeNotification("مهمة جديدة وردت إليك", task.title, { taskId: task.id, type: 'new_task' });
+            } 
+            // الحالة ب: تم اتخاذ إجراء أو تحديث حالة مهمة تخصني (أنا منفذها أو منشئها)
+            else if (!isNew && (task.assigned_to === user.id || task.assigned_by === user.id)) {
+              // ترجمة حالة المهمة للعربية لتكون أوضح في الإشعار
+              const statusLabels: Record<string, string> = {
+                in_progress: "قيد التنفيذ ⏳",
+                completed: "مكتملة ✅",
+                under_review: "تحت المراجعة 🔎",
+                approved: "معتمدة 🌟",
+                assigned: "مكلّف 📌",
+                suspended: "معلّقة ⏸️",
+              };
+              const statusAr = statusLabels[task.status] || task.status;
+              
+              toast.info("🔄 تحديث إجراءات المهمة", { description: `${task.title} - أصبحت: ${statusAr}` });
+              showNativeNotification("تحديث في حالة المهمة", `${task.title} \nالحالة الجديدة: ${statusAr}`, { taskId: task.id, type: 'update_task' });
             }
           });
         }
 
-        // 3. للمدراء: البحث عن طلبات إجازة جديدة
-        if (role === "admin" || role === "unit_head") {
-          const { data: newLeaves } = await supabase
-            .from("leave_requests")
-            .select("id, leave_type, user_id")
-            .neq("user_id", user.id)
-            .gt("created_at", lastCheck);
+        // ==========================================
+        // 2. مراقبة الإجازات (طلبات جديدة + تحديثات القبول/الرفض)
+        // ==========================================
+        const { data: leaves } = await supabase
+          .from("leave_requests")
+          .select("id, leave_type, status, created_at, updated_at, user_id")
+          .gt("updated_at", lastCheck);
 
-          if (newLeaves && newLeaves.length > 0) {
-            newLeaves.forEach(req => {
-              const type = req.leave_type === "leave" ? "إجازة" : "زمنية";
-              toast.info(`📝 طلب ${type} جديد`, { description: "يحتاج مراجعتك" });
-              showNativeNotification(`طلب ${type} جديد`, "يوجد طلب جديد يحتاج إلى مراجعتك", { requestId: req.id, type: 'new_leave' });
-            });
-          }
+        if (leaves && leaves.length > 0) {
+          leaves.forEach(req => {
+            const isNew = req.created_at > lastCheck;
+            const typeName = req.leave_type === "leave" ? "إجازة يومية" : "إجازة زمنية";
+
+            // الحالة أ: أنا مدير، وهناك موظف قدم طلب إجازة جديد
+            if (isNew && req.user_id !== user.id && (role === "admin" || role === "unit_head")) {
+              toast.info(`📝 طلب ${typeName} جديد`, { description: "يحتاج إلى مراجعتك واعتمادك" });
+              showNativeNotification(`طلب ${typeName} جديد`, "يوجد طلب يحتاج إلى اتخاذ إجراء", { requestId: req.id, type: 'new_leave' });
+            }
+            // الحالة ب: أنا موظف، والمدير قام بالموافقة أو الرفض لطلبي
+            else if (!isNew && req.user_id === user.id) {
+              const statusAr = req.status === "approved" ? "موافق عليه ✅" : req.status === "rejected" ? "مرفوض ❌" : "قيد المراجعة";
+              toast.success(`تحديث في طلب الـ ${typeName}`, { description: `حالة طلبك الآن: ${statusAr}` });
+              showNativeNotification(`تحديث طلب الإجازة`, `تم تغيير حالة طلبك إلى: ${statusAr}`, { requestId: req.id, type: 'update_leave' });
+            }
+          });
         }
 
-        // تحديث "وقت آخر فحص" ليكون الوقت الحالي لكي لا تتكرر الإشعارات
+        // ==========================================
+        // 3. مراقبة التعليقات (فقط التعليقات الجديدة)
+        // ==========================================
+        const { data: comments } = await supabase
+          .from("task_comments")
+          .select("id, task_id, message, created_at, user_id, tasks(title, assigned_to, assigned_by)")
+          .gt("created_at", lastCheck)
+          .neq("user_id", user.id); // لا ترسل لي إشعار بتعليقي الذي كتبته للتو!
+
+        if (comments && comments.length > 0) {
+          comments.forEach(comment => {
+            // @ts-ignore
+            const task = comment.tasks;
+            // التحقق من أن التعليق يخص مهمة أنا مشارك فيها
+            if (task && (task.assigned_to === user.id || task.assigned_by === user.id)) {
+              toast.info("💬 تعليق جديد", { description: `على مهمة: ${task.title}` });
+              showNativeNotification("تعليق جديد", `تم إضافة تعليق على مهمة: ${task.title}`, { taskId: comment.task_id, type: 'new_comment' });
+            }
+          });
+        }
+
+        // تحديث "وقت آخر فحص" ليكون الوقت الحالي
         lastCheckRef.current = now;
 
       } catch (error) {
-        console.error("Error during polling for updates:", error);
+        console.error("Error during polling for dashboard updates:", error);
       }
     };
 
     // تشغيل الفحص كل 10 ثوانٍ (10000 ميلي ثانية)
-    // يمكنك تقليل الرقم إلى 5000 إذا كنت تريد فحصاً أسرع (كل 5 ثواني)
     const intervalId = setInterval(checkForUpdates, 10000);
 
-    // تنظيف المؤقت عند إغلاق التطبيق
     return () => {
       clearInterval(intervalId);
     };
