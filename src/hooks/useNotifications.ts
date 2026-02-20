@@ -7,7 +7,6 @@ export function useNotifications() {
   const { user, role } = useAuth();
   const permissionRef = useRef<NotificationPermission>("default");
   
-  // حفظ وقت آخر فحص لمعرفة التغييرات الجديدة فقط
   const lastCheckRef = useRef<string>(new Date().toISOString());
 
   useEffect(() => {
@@ -38,7 +37,6 @@ export function useNotifications() {
           new Notification(title, { body, icon: "/favicon.ico", dir: "rtl" });
         }
       } catch (error) {
-        console.error("فشل إرسال الإشعار عبر SW، استخدام الخطة البديلة:", error);
         new Notification(title, { body, icon: "/favicon.ico", dir: "rtl" });
       }
     }
@@ -47,14 +45,22 @@ export function useNotifications() {
   useEffect(() => {
     if (!user) return;
 
-    // دالة الفحص الدوري الشاملة (للمهام، الإجراءات، الإجازات، والتعليقات)
     const checkForUpdates = async () => {
       const now = new Date().toISOString();
       const lastCheck = lastCheckRef.current;
 
+      // قراءة تفضيلات المستخدم من المتصفح لمعرفة ماذا يريد أن يستلم
+      const savedPrefs = localStorage.getItem(`notif_prefs_${user.id}`);
+      const prefs = savedPrefs ? JSON.parse(savedPrefs) : {
+        newTasks: true,
+        taskUpdates: true,
+        newComments: true,
+        leaveRequests: true,
+      };
+
       try {
         // ==========================================
-        // 1. مراقبة المهام (المهام الجديدة + تحديثات الإجراءات)
+        // 1. مراقبة المهام (الجديدة والتحديثات)
         // ==========================================
         const { data: tasks } = await supabase
           .from("tasks")
@@ -65,14 +71,13 @@ export function useNotifications() {
           tasks.forEach(task => {
             const isNew = task.created_at > lastCheck;
             
-            // الحالة أ: تم تكليفي بمهمة جديدة
-            if (isNew && task.assigned_to === user.id) {
+            // إذا كانت مهمة جديدة والمستخدم مفعل "إشعارات المهام الجديدة"
+            if (isNew && task.assigned_to === user.id && prefs.newTasks) {
               toast.info("📋 مهمة جديدة", { description: task.title });
               showNativeNotification("مهمة جديدة وردت إليك", task.title, { taskId: task.id, type: 'new_task' });
             } 
-            // الحالة ب: تم اتخاذ إجراء أو تحديث حالة مهمة تخصني (أنا منفذها أو منشئها)
-            else if (!isNew && (task.assigned_to === user.id || task.assigned_by === user.id)) {
-              // ترجمة حالة المهمة للعربية لتكون أوضح في الإشعار
+            // إذا كانت تحديث لحالة مهمة والمستخدم مفعل "تحديثات المهام"
+            else if (!isNew && (task.assigned_to === user.id || task.assigned_by === user.id) && prefs.taskUpdates) {
               const statusLabels: Record<string, string> = {
                 in_progress: "قيد التنفيذ ⏳",
                 completed: "مكتملة ✅",
@@ -84,13 +89,49 @@ export function useNotifications() {
               const statusAr = statusLabels[task.status] || task.status;
               
               toast.info("🔄 تحديث إجراءات المهمة", { description: `${task.title} - أصبحت: ${statusAr}` });
-              showNativeNotification("تحديث في حالة المهمة", `${task.title} \nالحالة الجديدة: ${statusAr}`, { taskId: task.id, type: 'update_task' });
+              showNativeNotification("تحديث في حالة المهمة", `${task.title} \nالحالة: ${statusAr}`, { taskId: task.id });
             }
           });
         }
 
         // ==========================================
-        // 2. مراقبة الإجازات (طلبات جديدة + تحديثات القبول/الرفض)
+        // 2. مراقبة التعليقات (مع جلب اسم المُعلِّق)
+        // ==========================================
+        if (prefs.newComments) {
+          const { data: comments } = await supabase
+            .from("task_comments")
+            .select("*")
+            .gt("created_at", lastCheck)
+            .neq("user_id", user.id); 
+
+          if (comments && comments.length > 0) {
+            for (const comment of comments) {
+              const { data: taskDetails } = await supabase
+                .from("tasks")
+                .select("title, assigned_to, assigned_by")
+                .eq("id", comment.task_id)
+                .maybeSingle();
+
+              if (taskDetails && (taskDetails.assigned_to === user.id || taskDetails.assigned_by === user.id)) {
+                
+                // جلب اسم صاحب التعليق
+                const { data: commenterProfile } = await supabase
+                  .from("profiles")
+                  .select("full_name")
+                  .eq("user_id", comment.user_id)
+                  .maybeSingle();
+                
+                const commenterName = commenterProfile?.full_name || "زميلك";
+
+                toast.info("💬 تعليق جديد", { description: `${commenterName} علّق على: ${taskDetails.title}` });
+                showNativeNotification("تعليق جديد", `${commenterName} أضاف تعليقاً على: ${taskDetails.title}`, { taskId: comment.task_id });
+              }
+            }
+          }
+        }
+
+        // ==========================================
+        // 3. مراقبة الإجازات
         // ==========================================
         const { data: leaves } = await supabase
           .from("leave_requests")
@@ -102,54 +143,28 @@ export function useNotifications() {
             const isNew = req.created_at > lastCheck;
             const typeName = req.leave_type === "leave" ? "إجازة يومية" : "إجازة زمنية";
 
-            // الحالة أ: أنا مدير، وهناك موظف قدم طلب إجازة جديد
-            if (isNew && req.user_id !== user.id && (role === "admin" || role === "unit_head")) {
+            // طلبات جديدة للمدير
+            if (isNew && req.user_id !== user.id && (role === "admin" || role === "unit_head") && prefs.leaveRequests) {
               toast.info(`📝 طلب ${typeName} جديد`, { description: "يحتاج إلى مراجعتك واعتمادك" });
-              showNativeNotification(`طلب ${typeName} جديد`, "يوجد طلب يحتاج إلى اتخاذ إجراء", { requestId: req.id, type: 'new_leave' });
+              showNativeNotification(`طلب ${typeName} جديد`, "يوجد طلب يحتاج إلى اتخاذ إجراء", { requestId: req.id });
             }
-            // الحالة ب: أنا موظف، والمدير قام بالموافقة أو الرفض لطلبي
+            // تحديثات للموظف (لا تحتاج لتفعيل خيار، تصل للموظف دائماً)
             else if (!isNew && req.user_id === user.id) {
               const statusAr = req.status === "approved" ? "موافق عليه ✅" : req.status === "rejected" ? "مرفوض ❌" : "قيد المراجعة";
               toast.success(`تحديث في طلب الـ ${typeName}`, { description: `حالة طلبك الآن: ${statusAr}` });
-              showNativeNotification(`تحديث طلب الإجازة`, `تم تغيير حالة طلبك إلى: ${statusAr}`, { requestId: req.id, type: 'update_leave' });
+              showNativeNotification(`تحديث طلب الإجازة`, `تم تغيير حالة طلبك إلى: ${statusAr}`, { requestId: req.id });
             }
           });
         }
 
-        // ==========================================
-        // 3. مراقبة التعليقات (فقط التعليقات الجديدة)
-        // ==========================================
-        const { data: comments } = await supabase
-          .from("task_comments")
-          .select("id, task_id, message, created_at, user_id, tasks(title, assigned_to, assigned_by)")
-          .gt("created_at", lastCheck)
-          .neq("user_id", user.id); // لا ترسل لي إشعار بتعليقي الذي كتبته للتو!
-
-        if (comments && comments.length > 0) {
-          comments.forEach(comment => {
-            // @ts-ignore
-            const task = comment.tasks;
-            // التحقق من أن التعليق يخص مهمة أنا مشارك فيها
-            if (task && (task.assigned_to === user.id || task.assigned_by === user.id)) {
-              toast.info("💬 تعليق جديد", { description: `على مهمة: ${task.title}` });
-              showNativeNotification("تعليق جديد", `تم إضافة تعليق على مهمة: ${task.title}`, { taskId: comment.task_id, type: 'new_comment' });
-            }
-          });
-        }
-
-        // تحديث "وقت آخر فحص" ليكون الوقت الحالي
         lastCheckRef.current = now;
 
       } catch (error) {
-        console.error("Error during polling for dashboard updates:", error);
+        console.error("Error during polling:", error);
       }
     };
 
-    // تشغيل الفحص كل 10 ثوانٍ (10000 ميلي ثانية)
     const intervalId = setInterval(checkForUpdates, 10000);
-
-    return () => {
-      clearInterval(intervalId);
-    };
+    return () => clearInterval(intervalId);
   }, [user, role]);
 }
