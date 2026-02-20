@@ -6,7 +6,7 @@ import { toast } from "sonner";
 /**
  * Requests browser notification permission and subscribes to
  * realtime changes on tasks, task_comments, and leave_requests.
- * Shows both in-app toasts and native browser notifications.
+ * Shows both in-app toasts and native browser notifications via Service Worker.
  */
 export function useNotifications() {
   const { user, role } = useAuth();
@@ -18,23 +18,47 @@ export function useNotifications() {
       if (Notification.permission === "granted") {
         permissionRef.current = "granted";
       } else if (Notification.permission !== "denied") {
-        Notification.requestPermission().then((p) => {
-          permissionRef.current = p;
-        });
+        // We only check current status, asking for permission is now in Profile page
+        permissionRef.current = Notification.permission;
       }
     }
   }, []);
 
-  const showNativeNotification = (title: string, body: string) => {
-    if (permissionRef.current === "granted" && "Notification" in window) {
+  // دالة متطورة لإظهار الإشعارات عبر Service Worker لضمان وصولها
+  const showNativeNotification = async (title: string, body: string, data: any = {}) => {
+    // 1. إظهار الإشعار المرئي للمستخدم
+    if (permissionRef.current === "granted" && "serviceWorker" in navigator) {
       try {
-        new Notification(title, {
+        const registration = await navigator.serviceWorker.ready;
+        await registration.showNotification(title, {
           body,
           icon: "/favicon.ico",
+          badge: "/favicon.ico",
+          dir: "rtl",
           tag: `notif-${Date.now()}`,
+          vibrate: [200, 100, 200], // اهتزاز للجوال
+          data: { ...data, url: "/" } // البيانات الإضافية للتتبع
         });
-      } catch {
-        // Silent fail for environments that don't support Notification constructor
+      } catch (error) {
+        console.error("Failed to show notification via Service Worker:", error);
+      }
+    }
+
+    // 2. [مستقبلاً] أرشفة الإشعار في قاعدة البيانات للتتبع (من قرأه ومن لم يقرأه)
+    if (user) {
+      /* * ملاحظة: يجب إنشاء جدول 'user_notifications' في Supabase لاحقاً 
+       * يحتوي على الأعمدة: id, user_id, title, body, is_read, created_at
+       */
+      try {
+        await supabase.from("user_notifications").insert({
+          user_id: user.id,
+          title: title,
+          body: body,
+          is_read: false,
+          reference_data: data // لحفظ رقم المهمة أو الطلب للرجوع إليه
+        });
+      } catch (err) {
+        // تجاهل الخطأ مؤقتاً حتى يتم إنشاء الجدول مستقبلاً
       }
     }
   };
@@ -49,9 +73,9 @@ export function useNotifications() {
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "tasks", filter: `assigned_to=eq.${user.id}` },
         (payload) => {
-          const task = payload.new as { title: string };
+          const task = payload.new as { id: string; title: string };
           toast.info("📋 مهمة جديدة", { description: task.title });
-          showNativeNotification("مهمة جديدة وردت إليك", task.title);
+          showNativeNotification("مهمة جديدة وردت إليك", task.title, { taskId: task.id, type: 'new_task' });
         }
       )
       // Task status changed on my tasks
@@ -59,7 +83,7 @@ export function useNotifications() {
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "tasks", filter: `assigned_to=eq.${user.id}` },
         (payload) => {
-          const task = payload.new as { title: string; status: string };
+          const task = payload.new as { id: string; title: string; status: string };
           const old = payload.old as { status: string };
           if (task.status !== old.status) {
             const statusLabels: Record<string, string> = {
@@ -72,7 +96,7 @@ export function useNotifications() {
             };
             const label = statusLabels[task.status] ?? task.status;
             toast.info(`تحديث مهمة: ${label}`, { description: task.title });
-            showNativeNotification("تحديث حالة مهمة", `${task.title} → ${label}`);
+            showNativeNotification("تحديث حالة مهمة", `${task.title} → ${label}`, { taskId: task.id, type: 'status_update' });
           }
         }
       )
@@ -81,7 +105,7 @@ export function useNotifications() {
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "task_comments" },
         async (payload) => {
-          const comment = payload.new as { task_id: string; user_id: string; message: string };
+          const comment = payload.new as { id: string; task_id: string; user_id: string; message: string };
           // Don't notify for own comments
           if (comment.user_id === user.id) return;
           // Check if I'm involved in this task
@@ -92,7 +116,7 @@ export function useNotifications() {
             .maybeSingle();
           if (task && (task.assigned_to === user.id || task.assigned_by === user.id)) {
             toast.info("💬 تعليق جديد", { description: `على مهمة: ${task.title}` });
-            showNativeNotification("تعليق جديد على مهمة", task.title);
+            showNativeNotification("تعليق جديد على مهمة", task.title, { taskId: comment.task_id, commentId: comment.id, type: 'new_comment' });
           }
         }
       )
@@ -101,12 +125,12 @@ export function useNotifications() {
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "leave_requests", filter: `user_id=eq.${user.id}` },
         (payload) => {
-          const req = payload.new as { status: string; leave_type: string };
+          const req = payload.new as { id: string; status: string; leave_type: string };
           const old = payload.old as { status: string };
           if (req.status !== old.status) {
             const type = req.leave_type === "leave" ? "إجازة" : "زمنية";
             toast.info(`تحديث طلب ${type}`, { description: `الحالة: ${req.status}` });
-            showNativeNotification(`تحديث طلب ${type}`, `تم تغيير حالة الطلب`);
+            showNativeNotification(`تحديث طلب ${type}`, `تم تغيير حالة الطلب إلى ${req.status}`, { requestId: req.id, type: 'leave_update' });
           }
         }
       );
@@ -117,11 +141,11 @@ export function useNotifications() {
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "leave_requests" },
         (payload) => {
-          const req = payload.new as { leave_type: string; user_id: string };
+          const req = payload.new as { id: string; leave_type: string; user_id: string };
           if (req.user_id === user.id) return;
           const type = req.leave_type === "leave" ? "إجازة" : "زمنية";
           toast.info(`📝 طلب ${type} جديد`, { description: "يحتاج مراجعتك" });
-          showNativeNotification(`طلب ${type} جديد`, "يحتاج مراجعتك");
+          showNativeNotification(`طلب ${type} جديد`, "يوجد طلب جديد يحتاج إلى مراجعتك", { requestId: req.id, type: 'new_leave' });
         }
       );
 
@@ -130,11 +154,11 @@ export function useNotifications() {
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "tasks" },
         (payload) => {
-          const task = payload.new as { title: string; status: string; assigned_by: string };
+          const task = payload.new as { id: string; title: string; status: string; assigned_by: string };
           const old = payload.old as { status: string };
           if (task.status !== old.status && task.status === "completed" && task.assigned_by === user.id) {
             toast.info("✅ مهمة مكتملة", { description: task.title });
-            showNativeNotification("مهمة مكتملة تحتاج مراجعة", task.title);
+            showNativeNotification("مهمة مكتملة تحتاج مراجعة", task.title, { taskId: task.id, type: 'task_completed' });
           }
         }
       );
