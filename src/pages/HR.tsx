@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { useSearchParams } from "react-router-dom";
 import AppLayout from "@/components/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -46,7 +47,6 @@ const requestTypeIcons: Record<string, typeof CalendarDays> = {
   task_request: ClipboardList, personal: HeartHandshake,
 };
 
-// 🔴 ثوابت الأرصدة الشهرية
 const MONTHLY_LEAVE_DAYS = 3;
 const MONTHLY_TIME_OFF_HOURS = 12;
 
@@ -54,6 +54,7 @@ export default function HRPage() {
   const { user, role } = useAuth();
   const { toast } = useToast();
   const isMobile = useIsMobile();
+  const [searchParams, setSearchParams] = useSearchParams();
   
   const [leaveRequests, setLeaveRequests] = useState<any[]>([]);
   const [attendance, setAttendance] = useState<any[]>([]);
@@ -79,11 +80,9 @@ export default function HRPage() {
   const [activityLogs, setActivityLogs] = useState<any[]>([]);
   const [activityLoading, setActivityLoading] = useState(false);
 
-  // 🔴 متغيرات الأرصدة للمستخدم الحالي
-  const [myBalances, setMyBalances] = useState({
-    leavesLeft: MONTHLY_LEAVE_DAYS,
-    timeOffLeft: MONTHLY_TIME_OFF_HOURS,
-  });
+  // 🔴 متغيرات الأرصدة وفلتر السجل
+  const [myBalances, setMyBalances] = useState({ leavesLeft: MONTHLY_LEAVE_DAYS, timeOffLeft: MONTHLY_TIME_OFF_HOURS });
+  const [historyFilter, setHistoryFilter] = useState<"same_type" | "all">("same_type");
 
   useEffect(() => { fetchData(); }, [role]);
 
@@ -107,8 +106,7 @@ export default function HRPage() {
             if (req.leave_type === "leave" && req.end_date) {
               const start = new Date(req.start_date);
               const end = new Date(req.end_date);
-              const diffTime = Math.abs(end.getTime() - start.getTime());
-              const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+              const diffDays = Math.ceil(Math.abs(end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
               usedLeaveDays += diffDays;
             } 
             else if (req.leave_type === "time_off" && req.hours) {
@@ -135,6 +133,19 @@ export default function HRPage() {
     }
     setLoading(false);
   };
+
+  // 🔴 الحساس الذكي: فتح المراجعة تلقائياً عند القدوم من الإشعارات
+  useEffect(() => {
+    const leaveId = searchParams.get("leaveId");
+    if (leaveId && leaveRequests.length > 0) {
+      const reqToOpen = leaveRequests.find(r => String(r.id) === leaveId);
+      if (reqToOpen && (role === "admin" || role === "unit_head")) {
+        fetchApplicantInfo(reqToOpen);
+        searchParams.delete("leaveId");
+        setSearchParams(searchParams, { replace: true });
+      }
+    }
+  }, [searchParams, leaveRequests, role]);
 
   const openRequestDialog = (type: string) => {
     setRequestType(type);
@@ -190,6 +201,8 @@ export default function HRPage() {
 
   const fetchApplicantInfo = async (lr: any) => {
     setSelectedRequest(lr);
+    setHistoryFilter("same_type"); // إعادة تعيين الفلتر ليظهر نفس النوع افتراضياً
+
     const today = new Date();
     const currentMonth = today.getMonth();
     const currentYear = today.getFullYear();
@@ -719,19 +732,41 @@ export default function HRPage() {
                   </div>
                 </div>
 
-                {applicantInfo.monthRequests.length > 0 && (
-                  <div>
-                    <p className="text-xs font-medium text-muted-foreground mb-2">طلبات أخرى هذا الشهر:</p>
-                    <div className="space-y-1">
-                      {applicantInfo.monthRequests.map((r: any) => (
-                        <div key={r.id} className="flex items-center justify-between p-2 bg-muted rounded text-xs">
-                          <span>{getRequestLabel(r)} — {r.start_date}</span>
-                          <Badge className={`text-xs ${statusColors[r.status] ?? ""}`}>{statusLabels[r.status]}</Badge>
-                        </div>
-                      ))}
+                {/* 🔴 قسم السجل الذكي المفلتر */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-xs font-medium text-muted-foreground">طلبات الموظف هذا الشهر:</p>
+                    <div className="flex gap-1 bg-muted p-1 rounded-md">
+                      <button 
+                        onClick={() => setHistoryFilter("same_type")}
+                        className={`text-[10px] px-2 py-1 rounded transition-colors ${historyFilter === "same_type" ? "bg-white shadow-sm font-bold" : "text-muted-foreground"}`}
+                      >
+                        نفس النوع
+                      </button>
+                      <button 
+                        onClick={() => setHistoryFilter("all")}
+                        className={`text-[10px] px-2 py-1 rounded transition-colors ${historyFilter === "all" ? "bg-white shadow-sm font-bold" : "text-muted-foreground"}`}
+                      >
+                        الكل
+                      </button>
                     </div>
                   </div>
-                )}
+
+                  <div className="space-y-1 max-h-32 overflow-y-auto pr-1">
+                    {applicantInfo.monthRequests.filter((r: any) => historyFilter === "all" || r.leave_type === selectedRequest.leave_type).length === 0 ? (
+                      <p className="text-xs text-center py-4 bg-muted/30 rounded text-muted-foreground">لا توجد طلبات سابقة مطابقة</p>
+                    ) : (
+                      applicantInfo.monthRequests
+                        .filter((r: any) => historyFilter === "all" || r.leave_type === selectedRequest.leave_type)
+                        .map((r: any) => (
+                          <div key={r.id} className="flex items-center justify-between p-2 bg-muted/50 rounded text-xs border border-border/50">
+                            <span>{getRequestLabel(r)} — {r.start_date}</span>
+                            <Badge className={`text-[10px] ${statusColors[r.status] ?? ""}`}>{statusLabels[r.status]}</Badge>
+                          </div>
+                        ))
+                    )}
+                  </div>
+                </div>
 
                 <div className="flex gap-2 pt-2">
                   <Button className="flex-1 gap-1 bg-success hover:bg-success/90 text-white"
