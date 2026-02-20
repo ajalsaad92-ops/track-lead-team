@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import AppLayout from "@/components/AppLayout";
@@ -12,8 +12,8 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
-import { ClipboardList, Plus, Search, ArrowRight } from "lucide-react";
-import { formatDistanceToNow } from "date-fns";
+import { ClipboardList, Plus, Search, ArrowRight, Send, MessageSquare } from "lucide-react";
+import { formatDistanceToNow, format } from "date-fns";
 import { ar } from "date-fns/locale";
 
 const statusLabels: Record<string, string> = {
@@ -42,6 +42,10 @@ export default function TasksPage() {
   const [points, setPoints] = useState(0);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [comments, setComments] = useState<any[]>([]);
+  const [newComment, setNewComment] = useState("");
+  const [commentLoading, setCommentLoading] = useState(false);
+  const commentsEndRef = useRef<HTMLDivElement>(null);
 
   const [form, setForm] = useState({
     title: "", description: "", task_type: "regular_task", assigned_to: "",
@@ -144,6 +148,36 @@ export default function TasksPage() {
       fetchTasks();
       setDetailDialogOpen(false);
     }
+  };
+
+  const getMemberName = (userId: string | null) => {
+    if (!userId) return "—";
+    return members.find(m => m.user_id === userId)?.full_name ?? "مستخدم";
+  };
+
+  const fetchComments = async (taskId: string) => {
+    const { data } = await supabase.from("task_comments").select("*").eq("task_id", taskId).order("created_at", { ascending: true });
+    setComments(data ?? []);
+    setTimeout(() => commentsEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
+  };
+
+  const handleSendComment = async () => {
+    if (!newComment.trim() || !detailTask || !user) return;
+    setCommentLoading(true);
+    const { error } = await supabase.from("task_comments").insert({
+      task_id: detailTask.id, user_id: user.id, message: newComment.trim(),
+    });
+    if (!error) {
+      setNewComment("");
+      fetchComments(detailTask.id);
+    }
+    setCommentLoading(false);
+  };
+
+  const openTaskDetail = (t: any) => {
+    setDetailTask(t);
+    setDetailDialogOpen(true);
+    fetchComments(t.id);
   };
 
   const filteredTasks = tasks.filter(t => {
@@ -280,7 +314,7 @@ export default function TasksPage() {
               <Card
                 key={t.id}
                 className="hover:shadow-elevated transition-shadow cursor-pointer border-0 shadow-card"
-                onClick={() => { setDetailTask(t); setDetailDialogOpen(true); }}
+                onClick={() => openTaskDetail(t)}
               >
                 <CardContent className="p-4">
                   <div className="flex justify-between items-start mb-2 gap-2">
@@ -306,12 +340,25 @@ export default function TasksPage() {
 
         {/* Detail Dialog */}
         <Dialog open={detailDialogOpen} onOpenChange={setDetailDialogOpen}>
-          <DialogContent className="mx-4 sm:mx-auto max-w-md">
+          <DialogContent className="mx-4 sm:mx-auto max-w-md max-h-[85vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="text-base">{detailTask?.title}</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
               <Badge className={statusColors[detailTask?.status] ?? ""}>{statusLabels[detailTask?.status]}</Badge>
+              
+              {/* Sender & Assignee Info */}
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="p-2 bg-muted/50 rounded-lg">
+                  <span className="text-muted-foreground block">من:</span>
+                  <span className="font-medium">{getMemberName(detailTask?.assigned_by)}</span>
+                </div>
+                <div className="p-2 bg-muted/50 rounded-lg">
+                  <span className="text-muted-foreground block">إلى:</span>
+                  <span className="font-medium">{getMemberName(detailTask?.assigned_to)}</span>
+                </div>
+              </div>
+
               {detailTask?.description && (
                 <p className="text-sm text-muted-foreground">{detailTask.description}</p>
               )}
@@ -321,6 +368,46 @@ export default function TasksPage() {
               {detailTask?.estimated_hours && (
                 <p className="text-xs text-muted-foreground">الساعات المقدّرة: {detailTask.estimated_hours}</p>
               )}
+              {detailTask?.created_at && (
+                <p className="text-xs text-muted-foreground">تاريخ الإنشاء: {format(new Date(detailTask.created_at), "yyyy/MM/dd - hh:mm a", { locale: ar })}</p>
+              )}
+
+              {/* Comments Section */}
+              <div className="border-t pt-3">
+                <h4 className="text-sm font-bold flex items-center gap-1 mb-2">
+                  <MessageSquare className="w-4 h-4" /> التعليقات ({comments.length})
+                </h4>
+                <div className="max-h-40 overflow-y-auto space-y-2 mb-2">
+                  {comments.length === 0 ? (
+                    <p className="text-xs text-muted-foreground text-center py-2">لا توجد تعليقات بعد</p>
+                  ) : (
+                    comments.map(c => (
+                      <div key={c.id} className={`p-2 rounded-lg text-xs ${c.user_id === user?.id ? "bg-primary/10 mr-4" : "bg-muted/50 ml-4"}`}>
+                        <div className="flex justify-between items-center mb-1">
+                          <span className="font-bold text-xs">{getMemberName(c.user_id)}</span>
+                          <span className="text-[10px] text-muted-foreground">
+                            {format(new Date(c.created_at), "MM/dd hh:mm a", { locale: ar })}
+                          </span>
+                        </div>
+                        <p>{c.message}</p>
+                      </div>
+                    ))
+                  )}
+                  <div ref={commentsEndRef} />
+                </div>
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="اكتب تعليقاً..."
+                    value={newComment}
+                    onChange={e => setNewComment(e.target.value)}
+                    onKeyDown={e => e.key === "Enter" && !e.shiftKey && handleSendComment()}
+                    className="text-xs"
+                  />
+                  <Button size="sm" onClick={handleSendComment} disabled={commentLoading || !newComment.trim()}>
+                    <Send className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
 
               <div className="flex flex-col gap-2">
                 {(role === "admin" || role === "unit_head") && detailTask?.assigned_to === user?.id && (
