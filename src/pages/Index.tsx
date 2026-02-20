@@ -1,71 +1,160 @@
 import { useState, useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import NewTaskAlert from "@/components/dashboard/NewTaskAlert"; // استيراد المكون الذي أرسلته
+import AppLayout from "@/components/AppLayout";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useNavigate } from "react-router-dom";
+import { supabase } from "@/integrations/supabase/client";
+import { 
+  ClipboardList, Users, CalendarDays, TrendingUp, 
+  CheckCircle2, Clock, AlertCircle, Star 
+} from "lucide-react";
 
-// داخل المكون الرئيسي للوحة القيادة
 export default function Dashboard() {
-  const { user, role } = useAuth();
-  const [latestTask, setLatestTask] = useState<any>(null);
-  const [showAlert, setShowAlert] = useState(false);
+  const { user, role, fullName } = useAuth();
+  const navigate = useNavigate();
+  const [stats, setStats] = useState({
+    tasksCount: 0,
+    approvedLeaves: 0,
+    timeOffHours: 0,
+    points: 0
+  });
 
   useEffect(() => {
     if (!user) return;
+    fetchDashboardStats();
+  }, [user]);
+
+  const fetchDashboardStats = async () => {
+    // جلب إحصائيات الشهر الحالي فقط
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+
+    // 1. المهام (قيد التنفيذ)
+    const { count: tCount } = await supabase.from("tasks")
+      .select("*", { count: 'exact', head: true })
+      .eq("assigned_to", user?.id)
+      .neq("status", "approved");
+
+    // 2. الإجازات والزمنيات
+    const { data: lr } = await supabase.from("leave_requests")
+      .select("*")
+      .eq("user_id", user?.id)
+      .eq("status", "admin_approved")
+      .gte("start_date", startOfMonth);
+
+    let leaves = 0;
+    let hours = 0;
+    lr?.forEach(r => {
+      if (r.leave_type === 'leave') leaves++;
+      else if (r.leave_type === 'time_off') hours += (r.hours || 0);
+    });
+
+    // 3. النقاط
+    const { data: approvedTasks } = await supabase.from("tasks")
+      .select("points_awarded")
+      .eq("assigned_to", user?.id)
+      .eq("status", "approved");
     
-    // دالة جلب آخر مهمة غير منجزة للتنبيه بها
-    const fetchLatestTask = async () => {
-      let query = supabase
-        .from("tasks")
-        .select("id, title, status, created_at, is_visible_to_unit_head, unit")
-        .order("created_at", { ascending: false })
-        .limit(1);
+    const totalPoints = approvedTasks?.reduce((acc, curr) => acc + (curr.points_awarded || 0), 0) || 0;
 
-      // تطبيق منطق الخصوصية في التنبيهات أيضاً
-      if (role === "individual") {
-        query = query.eq("assigned_to", user.id).eq("status", "assigned");
-      } else if (role === "unit_head") {
-        const { data: profile } = await supabase.from("profiles").select("unit").eq("user_id", user.id).single();
-        // ينبه رئيس الشعبة فقط إذا كانت المهمة موجهة له أو لأفراد شعبته ولم يحظرها المدير
-        query = query.or(`assigned_to.eq.${user.id},and(unit.eq.${profile?.unit},is_visible_to_unit_head.eq.true)`)
-                     .eq("status", "assigned");
-      }
-
-      const { data, error } = await query;
-
-      if (data && data.length > 0) {
-        // التحقق مما إذا كان التنبيه قد عُرض مسبقاً في هذه الجلسة (اختياري)
-        const lastNotifiedId = sessionStorage.getItem("last_notified_task_id");
-        if (lastNotifiedId !== data[0].id) {
-          setLatestTask(data[0]);
-          setShowAlert(true);
-        }
-      }
-    };
-
-    fetchLatestTask();
-  }, [user, role]);
-
-  const handleDismissAlert = () => {
-    if (latestTask) {
-      sessionStorage.setItem("last_notified_task_id", latestTask.id);
-    }
-    setShowAlert(false);
+    setStats({
+      tasksCount: tCount || 0,
+      approvedLeaves: leaves,
+      timeOffHours: hours,
+      points: totalPoints
+    });
   };
 
   return (
-    <div className="space-y-6">
-      {/* عرض التنبيه في أعلى لوحة القيادة إذا وجدت مهمة جديدة */}
-      {showAlert && latestTask && (
-        <NewTaskAlert 
-          title={latestTask.title} 
-          onDismiss={handleDismissAlert} 
-        />
-      )}
+    <AppLayout>
+      <div className="space-y-6">
+        {/* هيدر ترحيبي مخصص */}
+        <div>
+          <h1 className="text-2xl font-bold font-cairo">مرحباً، {fullName} 👋</h1>
+          {role !== "individual" && (
+            <p className="text-muted-foreground text-sm mt-1">نظرة عامة على أداء القسم — تحديث لحظي</p>
+          )}
+        </div>
 
-      {/* باقي محتويات لوحة القيادة (الإحصائيات، الرسوم البيانية، إلخ) */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* المكونات الأخرى هنا */}
+        {/* بطاقات الإحصائيات التفاعلية */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <Card 
+            className="shadow-card border-0 cursor-pointer hover:bg-slate-50 transition-colors"
+            onClick={() => navigate("/tasks")}
+          >
+            <CardContent className="p-4 flex items-center gap-4">
+              <div className="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center text-blue-600">
+                <ClipboardList className="w-6 h-6" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">مهامك النشطة</p>
+                <p className="text-xl font-bold">{stats.tasksCount}</p>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card 
+            className="shadow-card border-0 cursor-pointer hover:bg-slate-50 transition-colors"
+            onClick={() => navigate("/hr?tab=requests&filter=leave")}
+          >
+            <CardContent className="p-4 flex items-center gap-4">
+              <div className="w-12 h-12 rounded-xl bg-amber-100 flex items-center justify-center text-amber-600">
+                <CalendarDays className="w-6 h-6" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">إجازات هذا الشهر</p>
+                <p className="text-xl font-bold">{stats.approvedLeaves}</p>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card 
+            className="shadow-card border-0 cursor-pointer hover:bg-slate-50 transition-colors"
+            onClick={() => navigate("/hr?tab=requests&filter=time_off")}
+          >
+            <CardContent className="p-4 flex items-center gap-4">
+              <div className="w-12 h-12 rounded-xl bg-indigo-100 flex items-center justify-center text-indigo-600">
+                <Timer className="w-6 h-6" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">ساعات الزمنيات</p>
+                <p className="text-xl font-bold">{stats.timeOffHours}</p>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="shadow-card border-0 bg-primary text-primary-foreground">
+            <CardContent className="p-4 flex items-center gap-4">
+              <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center">
+                <Star className="w-6 h-6 fill-white" />
+              </div>
+              <div>
+                <p className="text-xs opacity-80">نقاط الإنجاز</p>
+                <p className="text-xl font-bold">{stats.points}</p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* للأدوار الإدارية فقط: عرض نسب الإنجاز */}
+        {role !== "individual" && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <Card className="shadow-card border-0">
+              <CardHeader><CardTitle className="text-base font-bold">تنبيهات الموارد البشرية</CardTitle></CardHeader>
+              <CardContent className="text-sm text-muted-foreground text-center py-10">
+                لا توجد تنبيهات عاجلة حالياً.
+              </CardContent>
+            </Card>
+            
+            <Card className="shadow-card border-0">
+              <CardHeader><CardTitle className="text-base font-bold">إحصائيات الأداء العام</CardTitle></CardHeader>
+              <CardContent className="text-sm text-muted-foreground text-center py-10">
+                سيتم تفعيل الرسوم البيانية هنا قريباً.
+              </CardContent>
+            </Card>
+          </div>
+        )}
       </div>
-    </div>
+    </AppLayout>
   );
 }
