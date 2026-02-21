@@ -1,44 +1,35 @@
 name: Build Android APK
 on:
   push:
-    branches: [ main ] # سيتم بناء التطبيق فوراً عند رفع الكود لفرع main
+    branches: [ main ] 
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Source
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4 # تحديث إلى v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4 # تحديث إلى v4
         with:
-          node-version: 18
-
-      - name: Setup Java
-        uses: actions/setup-java@v3
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v2
+          node-version: 20 # استخدام نسخة حديثة ومستقرة
 
       - name: Install Dependencies
         run: npm install
 
       - name: Build Web Project
-        run: npm run build # هذا الأمر يحول ملفات React إلى مجلد dist
+        run: npm run build 
 
       - name: Capacitor Sync
-        run: npx cap sync android # يرسل ملفات الويب إلى مجلد الأندرويد
+        run: npx cap sync android 
 
       - name: Build Android APK
         run: |
-          cd android && ./gradlew assembleDebug # عملية العصر النهائي لإنتاج ملف APK
+          cd android && ./gradlew assembleDebug 
 
       - name: Upload APK
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4 # الحل الأساسي: التحديث إلى v4
         with:
-          name: TMS-App-Jood.apk
+          name: TMS-App-Jood
           path: android/app/build/outputs/apk/debug/app-debug.apk
