@@ -8,12 +8,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Source
-        uses: actions/checkout@v4 # تحديث إلى v4
+        uses: actions/checkout@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4 # تحديث إلى v4
+        uses: actions/setup-node@v4
         with:
-          node-version: 20 # استخدام نسخة حديثة ومستقرة
+          node-version: 22 # تم التحديث إلى النسخة 22 المطلوبة
 
       - name: Install Dependencies
         run: npm install
@@ -29,7 +29,7 @@ jobs:
           cd android && ./gradlew assembleDebug 
 
       - name: Upload APK
-        uses: actions/upload-artifact@v4 # الحل الأساسي: التحديث إلى v4
+        uses: actions/upload-artifact@v4
         with:
           name: TMS-App-Jood
           path: android/app/build/outputs/apk/debug/app-debug.apk
