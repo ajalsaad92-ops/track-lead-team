@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">تدريب</string>
+    <string name="title_activity_main">تدريب</string>
+    <string name="package_name">com.jood.tms</string>
+    <string name="custom_url_scheme">com.jood.tms</string>
+</resources>
